@@ -1,17 +1,49 @@
 import "dotenv/config";
 
-import { google } from "googleapis";
 import fs from "fs";
 import path from "path";
+import { google } from "googleapis";
 
-const credentialsPath = path.join(
-  process.cwd(),
-  "google-service-account.json"
-);
+function loadGoogleCredentials(): Record<string, unknown> {
+  const railwayCredentials =
+    process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
 
-const credentials = JSON.parse(
-  fs.readFileSync(credentialsPath, "utf8")
-);
+  if (railwayCredentials) {
+    try {
+      return JSON.parse(railwayCredentials);
+    } catch {
+      throw new Error(
+        "GOOGLE_SERVICE_ACCOUNT_JSON contains invalid JSON"
+      );
+    }
+  }
+
+  const credentialsPath = path.join(
+    process.cwd(),
+    "google-service-account.json"
+  );
+
+  if (fs.existsSync(credentialsPath)) {
+    try {
+      const file = fs.readFileSync(
+        credentialsPath,
+        "utf8"
+      );
+
+      return JSON.parse(file);
+    } catch {
+      throw new Error(
+        "google-service-account.json contains invalid JSON"
+      );
+    }
+  }
+
+  throw new Error(
+    "Google credentials were not found. Add GOOGLE_SERVICE_ACCOUNT_JSON in Railway or keep google-service-account.json locally."
+  );
+}
+
+const credentials = loadGoogleCredentials();
 
 const auth = new google.auth.GoogleAuth({
   credentials,
