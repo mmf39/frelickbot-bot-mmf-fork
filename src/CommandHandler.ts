@@ -10,11 +10,13 @@ function normalizeTeamName(value: string): string {
     .replace(/^@_shrek\s*/i, "")
     .replace(/[^a-z0-9]/g, "");
 }
+
 function displayPlayerName(name: string): string {
   return name.replace(/^@/, "");
 }
-function parseScore(value: string): number | null {
-  if (!value) {
+
+function parseScore(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") {
     return null;
   }
 
@@ -45,9 +47,7 @@ function getEasternToday(): Date {
   }).formatToParts(new Date());
 
   const getPart = (type: string): number =>
-    Number(
-      parts.find((part) => part.type === type)?.value ?? 0
-    );
+    Number(parts.find((part) => part.type === type)?.value ?? 0);
 
   return new Date(
     getPart("year"),
@@ -59,9 +59,7 @@ function getEasternToday(): Date {
 function parseScheduleDate(value: string): Date | null {
   const match = value
     .trim()
-    .match(
-      /^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/
-    );
+    .match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
 
   if (!match) {
     return null;
@@ -70,9 +68,7 @@ function parseScheduleDate(value: string): Date | null {
   const month = Number(match[1]);
   const day = Number(match[2]);
 
-  let year = match[3]
-    ? Number(match[3])
-    : getEasternYear();
+  let year = match[3] ? Number(match[3]) : getEasternYear();
 
   if (year < 100) {
     year += 2000;
@@ -90,6 +86,10 @@ function findMatchingTeam(
   availableTeams: string[]
 ): string | null {
   const search = normalizeTeamName(searchText);
+
+  if (!search) {
+    return null;
+  }
 
   const exactMatch = availableTeams.find(
     (team) => normalizeTeamName(team) === search
@@ -115,13 +115,51 @@ function findMatchingTeam(
   return null;
 }
 
+function getTeamEmoji(team: string): string {
+  switch (normalizeTeamName(team)) {
+    case "turkeys":
+      return "🦃";
+    case "gusnem":
+      return "💪";
+    case "storm":
+      return "⛈️";
+    case "yetis":
+      return "🏔️";
+    case "cheerios":
+      return "🥣";
+    case "illegals":
+      return "🕶️";
+    case "thelions":
+      return "🦁";
+    case "thephantoms":
+      return "👻";
+    case "thesnipers":
+      return "🎯";
+    case "thefuture":
+      return "🚀";
+    case "pandas":
+      return "🐼";
+    case "superkings":
+      return "👑";
+    case "badbois":
+      return "😈";
+    case "dreamteam":
+      return "💭";
+    case "scorpions":
+      return "🦂";
+    case "bullets":
+      return "💥";
+    default:
+      return "🛡️";
+  }
+}
+
 export async function handleCommand(
   client: any,
   activity: any
 ): Promise<void> {
   const children =
-    activity.additionalInfo?.comment?.content?.nodes?.[0]
-      ?.children ?? [];
+    activity.additionalInfo?.comment?.content?.nodes?.[0]?.children ?? [];
 
   const fullText = children
     .map((child: any) => String(child.text ?? ""))
@@ -135,9 +173,7 @@ export async function handleCommand(
 
   console.log("Full message:", fullText);
 
-  const commandMatch = fullText.match(
-    /\$[a-z0-9_-]+/i
-  );
+  const commandMatch = fullText.match(/\$[a-z0-9_-]+/i);
 
   if (!commandMatch) {
     console.log("No command found.");
@@ -168,8 +204,14 @@ $cap [team/all] - Show salary-cap information
 $live [team] - Show live game scores
 $[team] - Show a team's information
 
-
-
+Examples:
+@_shrek $schedule Gus N Em
+@_shrek $roster Gus N Em
+@_shrek $cap Gus N Em
+@_shrek $cap all
+@_shrek $live
+@_shrek $live Gus N Em
+@_shrek $Gus N Em`
       );
 
       return;
@@ -198,10 +240,7 @@ Example:
       }
 
       const rosters = await getRosters();
-
-      const availableTeams = rosters.map(
-        (roster) => roster.team
-      );
+      const availableTeams = rosters.map((roster) => roster.team);
 
       const matchedTeam = findMatchingTeam(
         argumentsText,
@@ -232,270 +271,258 @@ Example:
         return;
       }
 
-     const rosterLines = roster.players.map(
-  (player) => `• ${displayPlayerName(player)}`
-);
+      const rosterLines = roster.players.map(
+        (player) => `• ${displayPlayerName(player)}`
+      );
 
-await client.replyToComment(
-  activity.commentId,
-`👥 ${matchedTeam} Roster
+      await client.replyToComment(
+        activity.commentId,
+`${getTeamEmoji(matchedTeam)} ${matchedTeam} Roster
 
 ${rosterLines.join("\n")}`
-);
+      );
 
       return;
     }
-case "$cap": {
-  if (!argumentsText) {
-    await client.replyToComment(
-      activity.commentId,
+
+    case "$cap": {
+      if (!argumentsText) {
+        await client.replyToComment(
+          activity.commentId,
 `Please enter a team name or "all".
 
 Examples:
 @_shrek $cap Gus N Em
 @_shrek $cap all`
-    );
-
-    return;
-  }
-
-  const contracts = await getContracts();
-
-  if (argumentsText.trim().toLowerCase() === "all") {
-    const teamTotals = new Map<string, number>();
-
-    for (const contract of contracts) {
-      const currentTotal =
-        teamTotals.get(contract.team) ?? 0;
-
-      teamTotals.set(
-        contract.team,
-        currentTotal + contract.currentCapHit
-      );
-    }
-
-    const capLines = Array.from(teamTotals.entries())
-      .sort((a, b) => b[1] - a[1])
-      .map(([team, capUsed]) => {
-        const capRemaining = CAP_LIMIT - capUsed;
-
-        return (
-          `• ${team} | ` +
-          `${formatScore(capUsed)} used | ` +
-          `${formatScore(capRemaining)} remaining`
         );
-      })
-      .join("\n");
 
-    const leagueTotal = Array.from(
-      teamTotals.values()
-    ).reduce(
-      (total, capHit) => total + capHit,
-      0
-    );
+        return;
+      }
 
-    await client.replyToComment(
-      activity.commentId,
+      const contracts = await getContracts();
+
+      if (argumentsText.trim().toLowerCase() === "all") {
+        const teamTotals = new Map<string, number>();
+
+        for (const contract of contracts) {
+          const currentTotal = teamTotals.get(contract.team) ?? 0;
+
+          teamTotals.set(
+            contract.team,
+            currentTotal + contract.currentCapHit
+          );
+        }
+
+        const capLines = Array.from(teamTotals.entries())
+          .sort((a, b) => b[1] - a[1])
+          .map(([team, capUsed]) => {
+            const capRemaining = CAP_LIMIT - capUsed;
+
+            return (
+              `${getTeamEmoji(team)} ${team} | ` +
+              `${formatScore(capUsed)} used | ` +
+              `${formatScore(capRemaining)} remaining`
+            );
+          })
+          .join("\n");
+
+        const leagueTotal = Array.from(teamTotals.values()).reduce(
+          (total, capHit) => total + capHit,
+          0
+        );
+
+        await client.replyToComment(
+          activity.commentId,
 `💰 League Salary Cap
 
 Team | Cap Used | Cap Remaining
 ${capLines}
 
 League Total Used: ${formatScore(leagueTotal)} Rax`
-    );
+        );
 
-    return;
-  }
+        return;
+      }
 
-  const availableTeams = Array.from(
-    new Set(
-      contracts.map((contract) => contract.team)
-    )
-  );
-
-  const matchedTeam = findMatchingTeam(
-    argumentsText,
-    availableTeams
-  );
-
-  if (!matchedTeam) {
-    await client.replyToComment(
-      activity.commentId,
-      `I could not find the team "${argumentsText}".`
-    );
-
-    return;
-  }
-
-  const teamContracts = contracts.filter(
-    (contract) =>
-      normalizeTeamName(contract.team) ===
-      normalizeTeamName(matchedTeam)
-  );
-
-  if (teamContracts.length === 0) {
-    await client.replyToComment(
-      activity.commentId,
-      `No salary-cap information was found for ${matchedTeam}.`
-    );
-
-    return;
-  }
-
-  const totalCapUsed = teamContracts.reduce(
-    (total, contract) =>
-      total + contract.currentCapHit,
-    0
-  );
-
-  const capRemaining =
-    CAP_LIMIT - totalCapUsed;
-
-  const contractText = teamContracts
-    .map((contract) => {
-      return (
-        `• ${displayPlayerName(contract.player)} | ` +
-        `${formatScore(contract.totalRax)} total Rax | ` +
-        `${contract.yearsLeft} year${
-          contract.yearsLeft === 1 ? "" : "s"
-        } left | ` +
-        `${formatScore(contract.currentCapHit)} cap hit`
+      const availableTeams = Array.from(
+        new Set(contracts.map((contract) => contract.team))
       );
-    })
-    .join("\n");
 
-  await client.replyToComment(
-    activity.commentId,
-`💰 ${matchedTeam} Salary Cap
+      const matchedTeam = findMatchingTeam(
+        argumentsText,
+        availableTeams
+      );
+
+      if (!matchedTeam) {
+        await client.replyToComment(
+          activity.commentId,
+          `I could not find the team "${argumentsText}".`
+        );
+
+        return;
+      }
+
+      const teamContracts = contracts.filter(
+        (contract) =>
+          normalizeTeamName(contract.team) ===
+          normalizeTeamName(matchedTeam)
+      );
+
+      if (teamContracts.length === 0) {
+        await client.replyToComment(
+          activity.commentId,
+          `No salary-cap information was found for ${matchedTeam}.`
+        );
+
+        return;
+      }
+
+      const totalCapUsed = teamContracts.reduce(
+        (total, contract) => total + contract.currentCapHit,
+        0
+      );
+
+      const capRemaining = CAP_LIMIT - totalCapUsed;
+
+      const contractText = teamContracts
+        .map((contract) => {
+          return (
+            `• ${displayPlayerName(contract.player)} | ` +
+            `${formatScore(contract.totalRax)} total Rax | ` +
+            `${contract.yearsLeft} year${
+              contract.yearsLeft === 1 ? "" : "s"
+            } left | ` +
+            `${formatScore(contract.currentCapHit)} cap hit`
+          );
+        })
+        .join("\n");
+
+      await client.replyToComment(
+        activity.commentId,
+`${getTeamEmoji(matchedTeam)} ${matchedTeam} Salary Cap
 
 Player | Total Rax | Years Left | Cap Hit
 ${contractText}
 
 Cap Used: ${formatScore(totalCapUsed)} / ${formatScore(CAP_LIMIT)}
 Cap Remaining: ${formatScore(capRemaining)}`
-  );
-
-  return;
-}
-      ```ts
-case "$live": {
-  const schedule = await getSchedule();
-
-  const liveGames = schedule.filter((game) => {
-    const status = String(game.status ?? "")
-      .trim()
-      .toLowerCase();
-
-    return (
-      status === "in progress" ||
-      status === "live"
-    );
-  });
-
-  if (liveGames.length === 0) {
-    await client.replyToComment(
-      activity.commentId,
-      "🔴 There are no live games right now."
-    );
-
-    return;
-  }
-
-  let gamesToShow = liveGames;
-  let matchedTeam: string | null = null;
-
-  if (argumentsText) {
-    const availableTeams = Array.from(
-      new Set(
-        liveGames.flatMap((game) => [
-          game.away,
-          game.home,
-        ])
-      )
-    );
-
-    matchedTeam = findMatchingTeam(
-      argumentsText,
-      availableTeams
-    );
-
-    if (!matchedTeam) {
-      const allScheduleTeams = Array.from(
-        new Set(
-          schedule.flatMap((game) => [
-            game.away,
-            game.home,
-          ])
-        )
       );
 
-      const existingTeam = findMatchingTeam(
-        argumentsText,
-        allScheduleTeams
-      );
+      return;
+    }
 
-      if (existingTeam) {
+    case "$live": {
+      const schedule = await getSchedule();
+
+      const liveGames = schedule.filter((game) => {
+        const status = String(game.status ?? "")
+          .trim()
+          .toLowerCase();
+
+        return status === "in progress" || status === "live";
+      });
+
+      if (liveGames.length === 0) {
         await client.replyToComment(
           activity.commentId,
-          `🔴 ${existingTeam} does not have a live game right now.`
+          "📺 There are no live games right now."
         );
-      } else {
-        await client.replyToComment(
-          activity.commentId,
-          `I could not find the team "${argumentsText}".`
-        );
+
+        return;
       }
 
-      return;
-    }
+      let gamesToShow = liveGames;
+      let matchedTeam: string | null = null;
 
-    gamesToShow = liveGames.filter(
-      (game) =>
-        normalizeTeamName(game.away) ===
-          normalizeTeamName(matchedTeam!) ||
-        normalizeTeamName(game.home) ===
-          normalizeTeamName(matchedTeam!)
-    );
+      if (argumentsText) {
+        const availableTeams = Array.from(
+          new Set(
+            liveGames.flatMap((game) => [
+              game.away,
+              game.home,
+            ])
+          )
+        );
 
-    if (gamesToShow.length === 0) {
+        matchedTeam = findMatchingTeam(
+          argumentsText,
+          availableTeams
+        );
+
+        if (!matchedTeam) {
+          const allScheduleTeams = Array.from(
+            new Set(
+              schedule.flatMap((game) => [
+                game.away,
+                game.home,
+              ])
+            )
+          );
+
+          const existingTeam = findMatchingTeam(
+            argumentsText,
+            allScheduleTeams
+          );
+
+          if (existingTeam) {
+            await client.replyToComment(
+              activity.commentId,
+              `📺 ${getTeamEmoji(existingTeam)} ${existingTeam} does not have a live game right now.`
+            );
+          } else {
+            await client.replyToComment(
+              activity.commentId,
+              `I could not find the team "${argumentsText}".`
+            );
+          }
+
+          return;
+        }
+
+        gamesToShow = liveGames.filter(
+          (game) =>
+            normalizeTeamName(game.away) ===
+              normalizeTeamName(matchedTeam!) ||
+            normalizeTeamName(game.home) ===
+              normalizeTeamName(matchedTeam!)
+        );
+
+        if (gamesToShow.length === 0) {
+          await client.replyToComment(
+            activity.commentId,
+            `📺 ${getTeamEmoji(matchedTeam)} ${matchedTeam} does not have a live game right now.`
+          );
+
+          return;
+        }
+      }
+
+      const liveGameLines = gamesToShow
+        .map((game) => {
+          const awayScore = parseScore(game.awayScore) ?? 0;
+          const homeScore = parseScore(game.homeScore) ?? 0;
+
+          return (
+            `${getTeamEmoji(game.away)} ${game.away} ` +
+            `${formatScore(awayScore)} - ${formatScore(homeScore)} ` +
+            `${game.home} ${getTeamEmoji(game.home)}`
+          );
+        })
+        .join("\n");
+
+      const title = matchedTeam
+        ? `📺 ${getTeamEmoji(matchedTeam)} ${matchedTeam} Live Game`
+        : "📺 Live Games";
+
       await client.replyToComment(
         activity.commentId,
-        `🔴 ${matchedTeam} does not have a live game right now.`
-      );
-
-      return;
-    }
-  }
-
-  const liveGameLines = gamesToShow
-    .map((game) => {
-      const awayScore =
-        parseScore(game.awayScore) ?? 0;
-
-      const homeScore =
-        parseScore(game.homeScore) ?? 0;
-
-      return (
-        `🔴 ${game.away} ${formatScore(awayScore)} ` +
-        `- ${formatScore(homeScore)} ${game.home}`
-      );
-    })
-    .join("\n");
-
-  const title = matchedTeam
-    ? `🔴 ${matchedTeam} Live Game`
-    : "🔴 Live Games";
-
-  await client.replyToComment(
-    activity.commentId,
 `${title}
 
 ${liveGameLines}`
-  );
+      );
 
-  return;
-}
-```
+      return;
+    }
 
     case "$schedule": {
       if (!argumentsText) {
@@ -545,12 +572,12 @@ Example:
 
       const lines = teamSchedule.map(
         (game) =>
-          `• ${game.date}: ${game.away} vs ${game.home}`
+          `• ${game.date}: ${getTeamEmoji(game.away)} ${game.away} vs ${game.home} ${getTeamEmoji(game.home)}`
       );
 
       await client.replyToComment(
         activity.commentId,
-`📅 ${matchedTeam} Schedule
+`${getTeamEmoji(matchedTeam)} ${matchedTeam} Schedule
 
 ${lines.join("\n")}`
       );
@@ -660,9 +687,7 @@ Use $help to see the available commands.`
   let currentStreak = "—";
 
   if (results.length > 0) {
-    const latestResult =
-      results[results.length - 1];
-
+    const latestResult = results[results.length - 1];
     let streakLength = 0;
 
     for (
@@ -677,8 +702,7 @@ Use $help to see the available commands.`
       streakLength++;
     }
 
-    currentStreak =
-      `${latestResult}${streakLength}`;
+    currentStreak = `${latestResult}${streakLength}`;
   }
 
   const today = getEasternToday();
@@ -694,9 +718,7 @@ Use $help to see the available commands.`
 
   const lastGame =
     completedGames.length > 0
-      ? completedGames[
-          completedGames.length - 1
-        ]
+      ? completedGames[completedGames.length - 1]
       : null;
 
   let nextGameText = "No upcoming game";
@@ -712,7 +734,8 @@ Use $help to see the available commands.`
 
     nextGameText =
       `${nextGame.date} ` +
-      `${isAway ? "at" : "vs"} ${opponent}`;
+      `${isAway ? "at" : "vs"} ` +
+      `${getTeamEmoji(opponent)} ${opponent}`;
   }
 
   let lastGameText = "No completed games";
@@ -742,37 +765,34 @@ Use $help to see the available commands.`
           : "T";
 
     lastGameText =
-      `${lastGame.date}: ${result} vs ${opponent}, ` +
-      `${formatScore(teamScore)}-${formatScore(
-        opponentScore
-      )}`;
+      `${lastGame.date}: ${result} vs ` +
+      `${getTeamEmoji(opponent)} ${opponent}, ` +
+      `${formatScore(teamScore)}-${formatScore(opponentScore)}`;
   }
 
   const record =
-  ties > 0
-    ? `${wins}-${losses}-${ties}`
-    : `${wins}-${losses}`;
+    ties > 0
+      ? `${wins}-${losses}-${ties}`
+      : `${wins}-${losses}`;
 
-const contracts = await getContracts();
+  const contracts = await getContracts();
 
-const teamContracts = contracts.filter(
-  (contract) =>
-    normalizeTeamName(contract.team) ===
-    normalizeTeamName(matchedTeam)
-);
+  const teamContracts = contracts.filter(
+    (contract) =>
+      normalizeTeamName(contract.team) ===
+      normalizeTeamName(matchedTeam)
+  );
 
-const totalCapUsed = teamContracts.reduce(
-  (total, contract) =>
-    total + contract.currentCapHit,
-  0
-);
+  const totalCapUsed = teamContracts.reduce(
+    (total, contract) => total + contract.currentCapHit,
+    0
+  );
 
-const capRemaining =
-  CAP_LIMIT - totalCapUsed;
+  const capRemaining = CAP_LIMIT - totalCapUsed;
 
-await client.replyToComment(
+  await client.replyToComment(
     activity.commentId,
-` ${matchedTeam}
+`${getTeamEmoji(matchedTeam)} ${matchedTeam}
 
 Record: ${record}
 Next Game: ${nextGameText}
