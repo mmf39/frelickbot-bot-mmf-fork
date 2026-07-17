@@ -4,7 +4,7 @@ import { getContracts } from "./google/SalaryCapService";
 
 const CAP_LIMIT = 5000;
 
-const LINEUP_ADMIN_USER_IDS = ["5nxgPpM3"];
+const LINEUP_ADMIN_USER_IDS = ["Y3KdBmLn"];
 
 const TEAM_LINEUP_SUBMITTER_USER_IDS: Record<string, string[]> = {
   turkeys: [],
@@ -14,7 +14,7 @@ const TEAM_LINEUP_SUBMITTER_USER_IDS: Record<string, string[]> = {
   pandas: [],
   superkings: [],
   dreamteam: [
-    "5nxgPpM3",
+    "wJ2Q7bLn",
   ],
   badbois: [],
   scorpions: [],
