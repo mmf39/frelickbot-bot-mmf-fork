@@ -13,9 +13,7 @@ const TEAM_LINEUP_SUBMITTER_USER_IDS: Record<string, string[]> = {
   illegals: [],
   pandas: [],
   superkings: [],
-  dreamteam: [
-    "wJ2Q7bLn",
-  ],
+  dreamteam: ["wJ2Q7bLn"],
   badbois: [],
   scorpions: [],
   storm: [],
