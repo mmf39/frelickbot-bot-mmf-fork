@@ -466,13 +466,17 @@ export async function handleCommand(
   client: any,
   activity: any
 ): Promise<void> {
-  const children =
-    activity.additionalInfo?.comment?.content?.nodes?.[0]?.children ?? [];
+ const nodes =
+  activity.additionalInfo?.comment?.content?.nodes ?? [];
 
-  const rawText = children
-    .map((child: any) => String(child.text ?? ""))
-    .join("\n")
-    .trim();
+const rawText = nodes
+  .map((node: any) =>
+    (node.children ?? [])
+      .map((child: any) => String(child.text ?? ""))
+      .join("")
+  )
+  .join("\n")
+  .trim();
 
   const fullText = rawText
     .replace(/\s+/g, " ")
