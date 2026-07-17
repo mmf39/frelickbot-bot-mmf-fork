@@ -182,6 +182,7 @@ type DivisionStanding = {
   differential: number;
   gamesPlayed: number;
   winPercentage: number;
+  gamesBehind: number;
 };
 
 function buildDivisionStandings(
@@ -198,6 +199,7 @@ function buildDivisionStandings(
     differential: 0,
     gamesPlayed: 0,
     winPercentage: 0,
+    gamesBehind: 0,
   }));
 
   const standingByTeam = new Map(
@@ -271,7 +273,7 @@ function buildDivisionStandings(
         : 0;
   }
 
-  return standings.sort(
+  standings.sort(
     (a, b) =>
       b.wins - a.wins ||
       b.winPercentage - a.winPercentage ||
@@ -279,6 +281,21 @@ function buildDivisionStandings(
       b.pointsFor - a.pointsFor ||
       a.team.localeCompare(b.team)
   );
+
+  const leader = standings[0];
+
+  for (const standing of standings) {
+    standing.gamesBehind = leader
+      ? (
+          (leader.wins + leader.ties * 0.5) -
+          (standing.wins + standing.ties * 0.5) +
+          (standing.losses + standing.ties * 0.5) -
+          (leader.losses + leader.ties * 0.5)
+        ) / 2
+      : 0;
+  }
+
+  return standings;
 }
 
 function formatDivisionStandings(
@@ -294,23 +311,35 @@ function formatDivisionStandings(
         ? `${standing.wins}-${standing.losses}-${standing.ties}`
         : `${standing.wins}-${standing.losses}`;
 
-    const differential =
-      standing.differential > 0
-        ? `+${formatScore(standing.differential)}`
-        : formatScore(standing.differential);
+    const gamesBehind =
+      standing.gamesBehind === 0
+        ? "-"
+        : Number.isInteger(standing.gamesBehind)
+          ? String(standing.gamesBehind)
+          : standing.gamesBehind.toFixed(1);
 
     return (
       `${index + 1}. ${getTeamEmoji(standing.team)} ` +
-      `${standing.team} | ${record} | ` +
-      `PF ${formatScore(standing.pointsFor)} | ` +
-      `PA ${formatScore(standing.pointsAgainst)} | ` +
-      `DIFF ${differential}`
+      `${standing.team}
+` +
+      `   Record: ${record} | GB: ${gamesBehind} | ` +
+      `PF: ${formatScore(standing.pointsFor)} | ` +
+      `PA: ${formatScore(standing.pointsAgainst)}`
     );
   });
 
-  return `${divisionEmoji} ${divisionName} Division
+  return (
+    `--------------------
+` +
+    `${divisionEmoji} ${divisionName} Division
+` +
+    `--------------------
 
-${rows.join("\n")}`;
+` +
+    rows.join("
+
+")
+  );
 }
 
 export async function handleCommand(
@@ -731,7 +760,7 @@ You can also use:
             standings
           );
         })
-        .join("\n\n");
+        .join("\n\n====================\n\n");
 
       await client.replyToComment(
         activity.commentId,
