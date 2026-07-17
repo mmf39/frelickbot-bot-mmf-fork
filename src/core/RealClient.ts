@@ -12,12 +12,50 @@ export class RealClient {
   }
 
   loadSession(): void {
-    const sessionPath = path.join(process.cwd(), "session.json");
-    const file = fs.readFileSync(sessionPath, "utf8");
+    const railwaySession =
+      process.env.REAL_SESSION_JSON;
 
-    this.session = JSON.parse(file);
+    if (railwaySession) {
+      try {
+        this.session = JSON.parse(
+          railwaySession
+        );
 
-    console.log("✓ Session loaded");
+        console.log(
+          "✓ Session loaded from Railway variable"
+        );
+
+        return;
+      } catch {
+        throw new Error(
+          "REAL_SESSION_JSON contains invalid JSON"
+        );
+      }
+    }
+
+    const sessionPath = path.join(
+      process.cwd(),
+      "session.json"
+    );
+
+    if (fs.existsSync(sessionPath)) {
+      const file = fs.readFileSync(
+        sessionPath,
+        "utf8"
+      );
+
+      this.session = JSON.parse(file);
+
+      console.log(
+        "✓ Session loaded from local file"
+      );
+
+      return;
+    }
+
+    throw new Error(
+      "No session found. Add REAL_SESSION_JSON in Railway or keep session.json locally."
+    );
   }
 
   getSession(): Session | null {
@@ -29,18 +67,31 @@ export class RealClient {
     parentCommentId: string | null = null
   ): Promise<any> {
     if (!this.session) {
-      throw new Error("No session has been loaded");
+      throw new Error(
+        "No session has been loaded"
+      );
     }
 
-    const groupId = Number(process.env.REAL_GROUP_ID);
-    const turnstileToken = process.env.REAL_TURNSTILE_TOKEN;
+    const groupId = Number(
+      process.env.REAL_GROUP_ID
+    );
 
-    if (!Number.isInteger(groupId) || groupId <= 0) {
-      throw new Error("REAL_GROUP_ID is missing or invalid");
+    const turnstileToken =
+      process.env.REAL_TURNSTILE_TOKEN;
+
+    if (
+      !Number.isInteger(groupId) ||
+      groupId <= 0
+    ) {
+      throw new Error(
+        "REAL_GROUP_ID is missing or invalid"
+      );
     }
 
     if (!turnstileToken) {
-      throw new Error("REAL_TURNSTILE_TOKEN is missing");
+      throw new Error(
+        "REAL_TURNSTILE_TOKEN is missing"
+      );
     }
 
     const response = await http.post(
@@ -52,12 +103,18 @@ export class RealClient {
       },
       {
         headers: {
-          "real-auth-info": this.session.authInfo,
-          "real-device-uuid": this.session.deviceUuid,
-          "real-request-token": RequestToken.generate(),
-          "real-turnstile-token": turnstileToken,
-          origin: "https://www.realapp.com",
-          referer: "https://www.realapp.com/",
+          "real-auth-info":
+            this.session.authInfo,
+          "real-device-uuid":
+            this.session.deviceUuid,
+          "real-request-token":
+            RequestToken.generate(),
+          "real-turnstile-token":
+            turnstileToken,
+          origin:
+            "https://www.realapp.com",
+          referer:
+            "https://www.realapp.com/",
         },
       }
     );
@@ -69,21 +126,32 @@ export class RealClient {
     parentCommentId: string,
     text: string
   ): Promise<any> {
-    return this.postToGroup(text, parentCommentId);
+    return this.postToGroup(
+      text,
+      parentCommentId
+    );
   }
 
   async getActivity(): Promise<any> {
     if (!this.session) {
-      throw new Error("No session has been loaded");
+      throw new Error(
+        "No session has been loaded"
+      );
     }
 
-    const response = await http.get("/activity", {
-      headers: {
-        "real-auth-info": this.session.authInfo,
-        "real-device-uuid": this.session.deviceUuid,
-        "real-request-token": RequestToken.generate(),
-      },
-    });
+    const response = await http.get(
+      "/activity",
+      {
+        headers: {
+          "real-auth-info":
+            this.session.authInfo,
+          "real-device-uuid":
+            this.session.deviceUuid,
+          "real-request-token":
+            RequestToken.generate(),
+        },
+      }
+    );
 
     return response.data;
   }
