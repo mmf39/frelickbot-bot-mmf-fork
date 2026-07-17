@@ -13,7 +13,9 @@ const TEAM_LINEUP_SUBMITTER_USER_IDS: Record<string, string[]> = {
   illegals: [],
   pandas: [],
   superkings: [],
-  dreamteam: ["wJ2Q7bLn","Y3KdBmLn"],
+  dreamteam: [
+    "Y3KdBmLn","R3XDLZz3","wJ2Q7bLn"
+  ],
   badbois: [],
   scorpions: [],
   storm: [],
@@ -755,7 +757,7 @@ Mark exactly one player with C.`
         await client.replyToComment(
           activity.commentId,
           submittingUserId
-            ? `Sorry, you are not allowed to submit a lineup for ${matchedTeam}.`
+            ? `User ${submittingUserId} is not allowed to submit a lineup for ${matchedTeam}.`
             : "I could not identify who submitted this lineup."
         );
 
