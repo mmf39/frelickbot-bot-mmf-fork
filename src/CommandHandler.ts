@@ -13,9 +13,7 @@ const TEAM_LINEUP_SUBMITTER_USER_IDS: Record<string, string[]> = {
   illegals: [],
   pandas: [],
   superkings: [],
-  dreamteam: [
-    "Y3KdBmLn","R3XDLZz3","wJ2Q7bLn"
-  ],
+  dreamteam: ["wJ2Q7bLn", "Y3KdBmLn"],
   badbois: [],
   scorpions: [],
   storm: [],
@@ -52,42 +50,104 @@ function displayPlayerName(name: string): string {
 
 
 function getSubmittingUserId(activity: any): string {
-  const possibleUserIds = [
-    activity.userId,
-    activity.user?.id,
+  // Only check fields that describe the author of the comment.
+  // Do not use activity.userId because that can be the mentioned user's name.
+  const directAuthorIds = [
+    activity.additionalInfo?.comment?.authorUserId,
+    activity.additionalInfo?.comment?.commenterUserId,
+    activity.additionalInfo?.comment?.createdByUserId,
+    activity.additionalInfo?.comment?.userId,
+    activity.additionalInfo?.comment?.author?.id,
+    activity.additionalInfo?.comment?.user?.id,
 
-    activity.additionalInfo?.userId,
-    activity.additionalInfo?.user?.id,
-
+    activity.comment?.authorUserId,
+    activity.comment?.commenterUserId,
+    activity.comment?.createdByUserId,
     activity.comment?.userId,
+    activity.comment?.author?.id,
     activity.comment?.user?.id,
 
-    activity.additionalInfo?.comment?.userId,
-    activity.additionalInfo?.comment?.user?.id,
+    activity.authorUserId,
+    activity.commenterUserId,
+    activity.createdByUserId,
+    activity.actorUserId,
+    activity.author?.id,
+    activity.actor?.id,
   ];
 
-  const userId =
-    possibleUserIds.find(
-      (value) =>
-        typeof value === "string" &&
-        value.trim().length > 0
-    ) ?? "";
+  const directMatch = directAuthorIds
+    .map((value) => String(value ?? "").trim())
+    .find((value) => /^[A-Za-z0-9]{8}$/.test(value));
 
-  const normalizedUserId = String(userId).trim();
-
-  console.log(
-    "Lineup submitter user ID:",
-    JSON.stringify(normalizedUserId)
-  );
-
-  if (!normalizedUserId) {
+  if (directMatch) {
     console.log(
-      "Could not identify lineup submitter. Activity:",
-      JSON.stringify(activity)
+      "Comment author Real user ID:",
+      directMatch
     );
+    return directMatch;
   }
 
-  return normalizedUserId;
+  // Fallback: recursively search only author-specific property names.
+  const authorKeys = new Set([
+    "authorUserId",
+    "commenterUserId",
+    "createdByUserId",
+    "actorUserId",
+    "senderUserId",
+    "ownerUserId",
+  ]);
+
+  const visited = new Set<any>();
+
+  function findAuthorId(value: any): string {
+    if (
+      value === null ||
+      value === undefined ||
+      typeof value !== "object" ||
+      visited.has(value)
+    ) {
+      return "";
+    }
+
+    visited.add(value);
+
+    for (const [key, child] of Object.entries(value)) {
+      if (authorKeys.has(key)) {
+        const candidate = String(child ?? "").trim();
+
+        if (/^[A-Za-z0-9]{8}$/.test(candidate)) {
+          console.log(
+            `Comment author ID found at ${key}:`,
+            candidate
+          );
+          return candidate;
+        }
+      }
+    }
+
+    for (const child of Object.values(value)) {
+      const found = findAuthorId(child);
+
+      if (found) {
+        return found;
+      }
+    }
+
+    return "";
+  }
+
+  const recursiveMatch = findAuthorId(activity);
+
+  if (recursiveMatch) {
+    return recursiveMatch;
+  }
+
+  console.log(
+    "Could not find the comment author's Real user ID. Full activity:",
+    JSON.stringify(activity)
+  );
+
+  return "";
 }
 
 function canSubmitLineupForTeam(
@@ -757,7 +817,7 @@ Mark exactly one player with C.`
         await client.replyToComment(
           activity.commentId,
           submittingUserId
-            ? `User ${submittingUserId} is not allowed to submit a lineup for ${matchedTeam}.`
+            ? `Sorry, you are not allowed to submit a lineup for ${matchedTeam}.`
             : "I could not identify who submitted this lineup."
         );
 
