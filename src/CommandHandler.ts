@@ -4,6 +4,21 @@ import { getContracts } from "./google/SalaryCapService";
 
 const CAP_LIMIT = 5000;
 
+const LINEUP_ADMINS = ["_shrek"];
+
+const TEAM_LINEUP_SUBMITTERS: Record<string, string[]> = {
+  turkeys: [],
+  gusnem: [],
+  thephantoms: [],
+  illegals: [],
+  pandas: [],
+  superkings: [],
+  dreamteam: ["_shrek"],
+  badbois: [],
+  scorpions: [],
+  storm: [],
+};
+
 const DIVISIONS: Record<string, string[]> = {
   north: [
     "Turkeys",
@@ -30,6 +45,50 @@ function normalizeTeamName(value: string): string {
 
 function displayPlayerName(name: string): string {
   return name.replace(/^@/, "");
+}
+
+
+function normalizeUsername(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/^@/, "");
+}
+
+function getSubmittingUsername(activity: any): string {
+  return String(
+    activity.additionalInfo?.comment?.user?.userName ??
+      activity.additionalInfo?.comment?.user?.username ??
+      activity.comment?.user?.userName ??
+      activity.comment?.user?.username ??
+      activity.user?.userName ??
+      activity.user?.username ??
+      ""
+  ).trim();
+}
+
+function canSubmitLineupForTeam(
+  username: string,
+  team: string
+): boolean {
+  const normalizedUsername = normalizeUsername(username);
+
+  if (
+    LINEUP_ADMINS.some(
+      (admin) =>
+        normalizeUsername(admin) === normalizedUsername
+    )
+  ) {
+    return true;
+  }
+
+  const allowedUsers =
+    TEAM_LINEUP_SUBMITTERS[normalizeTeamName(team)] ?? [];
+
+  return allowedUsers.some(
+    (allowedUser) =>
+      normalizeUsername(allowedUser) === normalizedUsername
+  );
 }
 
 function parseScore(value: unknown): number | null {
@@ -661,6 +720,26 @@ Mark exactly one player with C.`
         await client.replyToComment(
           activity.commentId,
           `I could not find the team "${parsedLineup.teamText}".`
+        );
+
+        return;
+      }
+
+      const submittingUsername =
+        getSubmittingUsername(activity);
+
+      if (
+        !submittingUsername ||
+        !canSubmitLineupForTeam(
+          submittingUsername,
+          matchedTeam
+        )
+      ) {
+        await client.replyToComment(
+          activity.commentId,
+          submittingUsername
+            ? `@${normalizeUsername(submittingUsername)} is not allowed to submit a lineup for ${matchedTeam}.`
+            : `I could not identify who submitted this lineup.`
         );
 
         return;
