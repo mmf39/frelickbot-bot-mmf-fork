@@ -4,17 +4,17 @@ import { getContracts } from "./google/SalaryCapService";
 
 const CAP_LIMIT = 5000;
 
-const LINEUP_ADMIN_USER_IDS = ["Y3KdBmLn"];
+const LINEUP_ADMIN_USER_IDS = ["5nxgPpM3"];
 
 const TEAM_LINEUP_SUBMITTER_USER_IDS: Record<string, string[]> = {
   turkeys: [],
   gusnem: [],
-  thephantoms: ["R3XDLZz3"],
+  thephantoms: [],
   illegals: [],
   pandas: [],
   superkings: [],
   dreamteam: [
-    "5nxgPpM3", "R3XDLZz3"
+    "5nxgPpM3",
   ],
   badbois: [],
   scorpions: [],
@@ -757,7 +757,7 @@ Mark exactly one player with C.`
         await client.replyToComment(
           activity.commentId,
           submittingUserId
-            ? `User ${submittingUserId} is not allowed to submit a lineup for ${matchedTeam}.`
+            ? `Sorry, you are not allowed to submit a lineup for ${matchedTeam}.`
             : "I could not identify who submitted this lineup."
         );
 
