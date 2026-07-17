@@ -164,15 +164,11 @@ $help - Show this menu
 $ping - Test the bot
 $schedule [team] - Show a team's full schedule
 $roster [team] - Show a team's roster
-$cap [team] - Show a team's salary-cap information
+$cap [team/all] - Show salary-cap information
+$live [team] - Show live game scores
 $[team] - Show a team's information
 
 
-Examples:
-@_shrek $schedule Gus N Em
-@_shrek $roster Gus N Em
-@_shrek $cap Gus N Em
-@_shrek $Gus N Em`
 
       );
 
@@ -381,6 +377,126 @@ Cap Remaining: ${formatScore(capRemaining)}`
 
   return;
 }
+      ```ts
+case "$live": {
+  const schedule = await getSchedule();
+
+  const liveGames = schedule.filter((game) => {
+    const status = String(game.status ?? "")
+      .trim()
+      .toLowerCase();
+
+    return (
+      status === "in progress" ||
+      status === "live"
+    );
+  });
+
+  if (liveGames.length === 0) {
+    await client.replyToComment(
+      activity.commentId,
+      "🔴 There are no live games right now."
+    );
+
+    return;
+  }
+
+  let gamesToShow = liveGames;
+  let matchedTeam: string | null = null;
+
+  if (argumentsText) {
+    const availableTeams = Array.from(
+      new Set(
+        liveGames.flatMap((game) => [
+          game.away,
+          game.home,
+        ])
+      )
+    );
+
+    matchedTeam = findMatchingTeam(
+      argumentsText,
+      availableTeams
+    );
+
+    if (!matchedTeam) {
+      const allScheduleTeams = Array.from(
+        new Set(
+          schedule.flatMap((game) => [
+            game.away,
+            game.home,
+          ])
+        )
+      );
+
+      const existingTeam = findMatchingTeam(
+        argumentsText,
+        allScheduleTeams
+      );
+
+      if (existingTeam) {
+        await client.replyToComment(
+          activity.commentId,
+          `🔴 ${existingTeam} does not have a live game right now.`
+        );
+      } else {
+        await client.replyToComment(
+          activity.commentId,
+          `I could not find the team "${argumentsText}".`
+        );
+      }
+
+      return;
+    }
+
+    gamesToShow = liveGames.filter(
+      (game) =>
+        normalizeTeamName(game.away) ===
+          normalizeTeamName(matchedTeam!) ||
+        normalizeTeamName(game.home) ===
+          normalizeTeamName(matchedTeam!)
+    );
+
+    if (gamesToShow.length === 0) {
+      await client.replyToComment(
+        activity.commentId,
+        `🔴 ${matchedTeam} does not have a live game right now.`
+      );
+
+      return;
+    }
+  }
+
+  const liveGameLines = gamesToShow
+    .map((game) => {
+      const awayScore =
+        parseScore(game.awayScore) ?? 0;
+
+      const homeScore =
+        parseScore(game.homeScore) ?? 0;
+
+      return (
+        `🔴 ${game.away} ${formatScore(awayScore)} ` +
+        `- ${formatScore(homeScore)} ${game.home}`
+      );
+    })
+    .join("\n");
+
+  const title = matchedTeam
+    ? `🔴 ${matchedTeam} Live Game`
+    : "🔴 Live Games";
+
+  await client.replyToComment(
+    activity.commentId,
+`${title}
+
+${liveGameLines}`
+  );
+
+  return;
+}
+```
+
     case "$schedule": {
       if (!argumentsText) {
         await client.replyToComment(
