@@ -13,7 +13,7 @@ const TEAM_LINEUP_SUBMITTERS: Record<string, string[]> = {
   illegals: [],
   pandas: [],
   superkings: [],
-  dreamteam: ["_shrek"],
+  dreamteam: ["_shrek", "timotime" , "mmf"],
   badbois: [],
   scorpions: [],
   storm: [],
