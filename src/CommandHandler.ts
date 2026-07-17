@@ -462,21 +462,82 @@ async function submitLineupToSheet(
   return result;
 }
 
+function extractCommentText(value: any): string {
+  if (value === null || value === undefined) {
+    return "";
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => extractCommentText(item))
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  if (typeof value.text === "string" && value.text.length > 0) {
+    return value.text;
+  }
+
+  const mentionText =
+    value.attrs?.label ??
+    value.attrs?.username ??
+    value.attrs?.displayName ??
+    value.additionalInfo?.username ??
+    value.username ??
+    value.name;
+
+  if (
+    typeof mentionText === "string" &&
+    (value.type === "mention" || value.type === "userMention")
+  ) {
+    return mentionText.startsWith("@")
+      ? mentionText
+      : `@${mentionText}`;
+  }
+
+  if (value.type === "hardBreak" || value.type === "lineBreak") {
+    return "\n";
+  }
+
+  const nested =
+    value.children ??
+    value.content ??
+    value.nodes ??
+    [];
+
+  const nestedText = extractCommentText(nested);
+
+  if (
+    value.type === "paragraph" ||
+    value.type === "heading" ||
+    value.type === "listItem"
+  ) {
+    return `${nestedText}\n`;
+  }
+
+  return nestedText;
+}
+
 export async function handleCommand(
   client: any,
   activity: any
 ): Promise<void> {
- const nodes =
-  activity.additionalInfo?.comment?.content?.nodes ?? [];
+  const commentContent =
+    activity.additionalInfo?.comment?.content ??
+    activity.comment?.content ??
+    activity.content ??
+    {};
 
-const rawText = nodes
-  .map((node: any) =>
-    (node.children ?? [])
-      .map((child: any) => String(child.text ?? ""))
-      .join("")
-  )
-  .join("\n")
-  .trim();
+  const rawText = extractCommentText(commentContent)
+    .replace(/\n{2,}/g, "\n")
+    .trim();
+
+  console.log("Raw comment content:", JSON.stringify(commentContent));
+  console.log("Parsed raw text:", JSON.stringify(rawText));
 
   const fullText = rawText
     .replace(/\s+/g, " ")
