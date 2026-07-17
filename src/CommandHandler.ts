@@ -737,28 +737,53 @@ You can also use:
 
       const schedule = await getSchedule();
 
-      const divisionsToShow = requestedDivision
-        ? [requestedDivision]
-        : ["north", "south"];
-
-      const output = divisionsToShow
-        .map((division) => {
-          const standings = buildDivisionStandings(
+      // No division entered: send North and South as two separate replies.
+      if (!requestedDivision) {
+        const northStandings = formatDivisionStandings(
+          "North",
+          buildDivisionStandings(
             schedule,
-            DIVISIONS[division]
-          );
+            DIVISIONS.north
+          )
+        );
 
-          return formatDivisionStandings(
-            division.charAt(0).toUpperCase() +
-              division.slice(1),
-            standings
-          );
-        })
-        .join("\n\n====================\n\n");
+        const southStandings = formatDivisionStandings(
+          "South",
+          buildDivisionStandings(
+            schedule,
+            DIVISIONS.south
+          )
+        );
+
+        await client.replyToComment(
+          activity.commentId,
+          northStandings
+        );
+
+        await client.replyToComment(
+          activity.commentId,
+          southStandings
+        );
+
+        return;
+      }
+
+      // A division was entered: send only that division.
+      const standings = buildDivisionStandings(
+        schedule,
+        DIVISIONS[requestedDivision]
+      );
+
+      const divisionName =
+        requestedDivision.charAt(0).toUpperCase() +
+        requestedDivision.slice(1);
 
       await client.replyToComment(
         activity.commentId,
-        output
+        formatDivisionStandings(
+          divisionName,
+          standings
+        )
       );
 
       return;
