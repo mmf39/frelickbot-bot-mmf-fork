@@ -4,16 +4,16 @@ import { getContracts } from "./google/SalaryCapService";
 
 const CAP_LIMIT = 5000;
 
-const LINEUP_ADMINS = ["_shrek"];
+const LINEUP_ADMINS = ["_shrek", "mmf"];
 
 const TEAM_LINEUP_SUBMITTERS: Record<string, string[]> = {
   turkeys: [],
   gusnem: [],
-  thephantoms: [],
+  thephantoms: ["timotime"],
   illegals: [],
   pandas: [],
   superkings: [],
-  dreamteam: ["_shrek", "timotime" , "mmf"],
+  dreamteam: ["_shrek"],
   badbois: [],
   scorpions: [],
   storm: [],
@@ -56,15 +56,43 @@ function normalizeUsername(value: string): string {
 }
 
 function getSubmittingUsername(activity: any): string {
-  return String(
-    activity.additionalInfo?.comment?.user?.userName ??
-      activity.additionalInfo?.comment?.user?.username ??
-      activity.comment?.user?.userName ??
-      activity.comment?.user?.username ??
-      activity.user?.userName ??
-      activity.user?.username ??
-      ""
-  ).trim();
+  const possibleUsernames = [
+    activity.additionalInfo?.comment?.user?.userName,
+    activity.additionalInfo?.comment?.user?.username,
+    activity.additionalInfo?.comment?.userName,
+    activity.additionalInfo?.comment?.username,
+
+    activity.comment?.user?.userName,
+    activity.comment?.user?.username,
+    activity.comment?.userName,
+    activity.comment?.username,
+
+    activity.additionalInfo?.user?.userName,
+    activity.additionalInfo?.user?.username,
+
+    activity.user?.userName,
+    activity.user?.username,
+
+    activity.userName,
+    activity.username,
+  ];
+
+  const username = possibleUsernames.find(
+    (value) =>
+      typeof value === "string" &&
+      value.trim().length > 0
+  );
+
+  if (!username) {
+    console.log(
+      "Could not identify lineup submitter. Activity:",
+      JSON.stringify(activity)
+    );
+
+    return "";
+  }
+
+  return username.trim();
 }
 
 function canSubmitLineupForTeam(
