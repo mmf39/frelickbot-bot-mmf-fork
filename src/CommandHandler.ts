@@ -329,16 +329,10 @@ function formatDivisionStandings(
   });
 
   return (
-    `--------------------
-` +
-    `${divisionEmoji} ${divisionName} Division
-` +
-    `--------------------
-
-` +
-    rows.join("
-
-")
+    `--------------------\n` +
+    `${divisionEmoji} ${divisionName} Division\n` +
+    `--------------------\n\n` +
+    rows.join("\n\n")
   );
 }
 
