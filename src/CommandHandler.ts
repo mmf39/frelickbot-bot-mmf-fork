@@ -4,6 +4,23 @@ import { getContracts } from "./google/SalaryCapService";
 
 const CAP_LIMIT = 5000;
 
+const DIVISIONS: Record<string, string[]> = {
+  north: [
+    "Turkeys",
+    "Gus N Em",
+    "The Phantoms",
+    "Illegals",
+    "Pandas",
+  ],
+  south: [
+    "Super Kings",
+    "Dream Team",
+    "Bad Bois",
+    "Scorpions",
+    "Storm",
+  ],
+};
+
 function normalizeTeamName(value: string): string {
   return value
     .toLowerCase()
@@ -154,6 +171,148 @@ function getTeamEmoji(team: string): string {
   }
 }
 
+
+type DivisionStanding = {
+  team: string;
+  wins: number;
+  losses: number;
+  ties: number;
+  pointsFor: number;
+  pointsAgainst: number;
+  differential: number;
+  gamesPlayed: number;
+  winPercentage: number;
+};
+
+function buildDivisionStandings(
+  schedule: Awaited<ReturnType<typeof getSchedule>>,
+  divisionTeams: string[]
+): DivisionStanding[] {
+  const standings = divisionTeams.map((team) => ({
+    team,
+    wins: 0,
+    losses: 0,
+    ties: 0,
+    pointsFor: 0,
+    pointsAgainst: 0,
+    differential: 0,
+    gamesPlayed: 0,
+    winPercentage: 0,
+  }));
+
+  const standingByTeam = new Map(
+    standings.map((standing) => [
+      normalizeTeamName(standing.team),
+      standing,
+    ])
+  );
+
+  for (const game of schedule) {
+    const status = String(game.status ?? "")
+      .trim()
+      .toLowerCase();
+
+    if (status !== "completed" && status !== "complete") {
+      continue;
+    }
+
+    const awayScore = parseScore(game.awayScore);
+    const homeScore = parseScore(game.homeScore);
+
+    if (awayScore === null || homeScore === null) {
+      continue;
+    }
+
+    const awayStanding = standingByTeam.get(
+      normalizeTeamName(game.away)
+    );
+
+    const homeStanding = standingByTeam.get(
+      normalizeTeamName(game.home)
+    );
+
+    if (awayStanding) {
+      awayStanding.gamesPlayed++;
+      awayStanding.pointsFor += awayScore;
+      awayStanding.pointsAgainst += homeScore;
+
+      if (awayScore > homeScore) {
+        awayStanding.wins++;
+      } else if (awayScore < homeScore) {
+        awayStanding.losses++;
+      } else {
+        awayStanding.ties++;
+      }
+    }
+
+    if (homeStanding) {
+      homeStanding.gamesPlayed++;
+      homeStanding.pointsFor += homeScore;
+      homeStanding.pointsAgainst += awayScore;
+
+      if (homeScore > awayScore) {
+        homeStanding.wins++;
+      } else if (homeScore < awayScore) {
+        homeStanding.losses++;
+      } else {
+        homeStanding.ties++;
+      }
+    }
+  }
+
+  for (const standing of standings) {
+    standing.differential =
+      standing.pointsFor - standing.pointsAgainst;
+
+    standing.winPercentage =
+      standing.gamesPlayed > 0
+        ? (standing.wins + standing.ties * 0.5) /
+          standing.gamesPlayed
+        : 0;
+  }
+
+  return standings.sort(
+    (a, b) =>
+      b.wins - a.wins ||
+      b.winPercentage - a.winPercentage ||
+      b.differential - a.differential ||
+      b.pointsFor - a.pointsFor ||
+      a.team.localeCompare(b.team)
+  );
+}
+
+function formatDivisionStandings(
+  divisionName: string,
+  standings: DivisionStanding[]
+): string {
+  const divisionEmoji =
+    divisionName.toLowerCase() === "north" ? "🏔️" : "🌴";
+
+  const rows = standings.map((standing, index) => {
+    const record =
+      standing.ties > 0
+        ? `${standing.wins}-${standing.losses}-${standing.ties}`
+        : `${standing.wins}-${standing.losses}`;
+
+    const differential =
+      standing.differential > 0
+        ? `+${formatScore(standing.differential)}`
+        : formatScore(standing.differential);
+
+    return (
+      `${index + 1}. ${getTeamEmoji(standing.team)} ` +
+      `${standing.team} | ${record} | ` +
+      `PF ${formatScore(standing.pointsFor)} | ` +
+      `PA ${formatScore(standing.pointsAgainst)} | ` +
+      `DIFF ${differential}`
+    );
+  });
+
+  return `${divisionEmoji} ${divisionName} Division
+
+${rows.join("\n")}`;
+}
+
 export async function handleCommand(
   client: any,
   activity: any
@@ -199,6 +358,7 @@ export async function handleCommand(
 $help - Show this menu
 $ping - Test the bot
 $schedule [team] - Show a team's full schedule
+$standing [division] - Show division standings
 $roster [team] - Show a team's roster
 $cap [team/all] - Show salary-cap information
 $live [team] - Show live game scores
@@ -206,6 +366,8 @@ $[team] - Show a team's information
 
 Examples:
 @_shrek $schedule Gus N Em
+@_shrek $standing north
+@_shrek $standing south
 @_shrek $roster Gus N Em
 @_shrek $cap Gus N Em
 @_shrek $cap all
@@ -519,6 +681,61 @@ Cap Remaining: ${formatScore(capRemaining)}`
 `${title}
 
 ${liveGameLines}`
+      );
+
+      return;
+    }
+
+    case "$standing":
+    case "$standings": {
+      const requestedDivision = argumentsText
+        .trim()
+        .toLowerCase();
+
+      if (
+        requestedDivision &&
+        requestedDivision !== "north" &&
+        requestedDivision !== "south"
+      ) {
+        await client.replyToComment(
+          activity.commentId,
+`Please enter North or South.
+
+Examples:
+@_shrek $standing north
+@_shrek $standing south
+
+You can also use:
+@_shrek $standing`
+        );
+
+        return;
+      }
+
+      const schedule = await getSchedule();
+
+      const divisionsToShow = requestedDivision
+        ? [requestedDivision]
+        : ["north", "south"];
+
+      const output = divisionsToShow
+        .map((division) => {
+          const standings = buildDivisionStandings(
+            schedule,
+            DIVISIONS[division]
+          );
+
+          return formatDivisionStandings(
+            division.charAt(0).toUpperCase() +
+              division.slice(1),
+            standings
+          );
+        })
+        .join("\n\n");
+
+      await client.replyToComment(
+        activity.commentId,
+        output
       );
 
       return;
