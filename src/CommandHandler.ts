@@ -4,19 +4,19 @@ import { getContracts } from "./google/SalaryCapService";
 
 const CAP_LIMIT = 5000;
 
-const LINEUP_ADMIN_USER_IDS = ["Y3KdBmLn"];
+const LINEUP_ADMIN_USER_IDS = ["Y3KdBmLn","R3XDLZz3"];
 
 const TEAM_LINEUP_SUBMITTER_USER_IDS: Record<string, string[]> = {
-  turkeys: [],
-  gusnem: [],
-  thephantoms: [],
-  illegals: [],
-  pandas: [],
-  superkings: [],
-  dreamteam: ["wJ2Q7bLn", "Y3KdBmLn"],
-  badbois: [],
-  scorpions: [],
-  storm: [],
+  turkeys: ["4JZo9wZv"],
+  gusnem: ["rner1dZJ"],
+  thephantoms: ["5nxBPRyv"],
+  illegals: ["5nxPZYQn"],
+  pandas: ["jvbN8dbv"],
+  superkings: ["7JkKrbKJ"],
+  dreamteam: ["dvd60P4n"],
+  badbois: ["xnr4NGkv"],
+  scorpions: ["eJ9dx9bn"],
+  storm: ["mvg4OPG3"],
 };
 
 const DIVISIONS: Record<string, string[]> = {
