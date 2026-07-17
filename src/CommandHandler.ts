@@ -2,6 +2,8 @@ import { getSchedule } from "./google/ScheduleService";
 import { getRosters } from "./google/RostersService";
 import { getContracts } from "./google/SalaryCapService";
 
+const CAP_LIMIT = 5000;
+
 function normalizeTeamName(value: string): string {
   return value
     .toLowerCase()
@@ -278,10 +280,15 @@ Examples:
 
     const capLines = Array.from(teamTotals.entries())
       .sort((a, b) => b[1] - a[1])
-      .map(
-        ([team, capHit]) =>
-          `• ${team} | ${formatScore(capHit)} Rax`
-      )
+      .map(([team, capUsed]) => {
+        const capRemaining = CAP_LIMIT - capUsed;
+
+        return (
+          `• ${team} | ` +
+          `${formatScore(capUsed)} used | ` +
+          `${formatScore(capRemaining)} remaining`
+        );
+      })
       .join("\n");
 
     const leagueTotal = Array.from(
@@ -294,9 +301,11 @@ Examples:
     await client.replyToComment(
       activity.commentId,
 `💰 League Salary Cap
-Team | Cap Hit This Season
+
+Team | Cap Used | Cap Remaining
 ${capLines}
-League Total: ${formatScore(leagueTotal)} Rax`
+
+League Total Used: ${formatScore(leagueTotal)} Rax`
     );
 
     return;
@@ -343,6 +352,9 @@ League Total: ${formatScore(leagueTotal)} Rax`
     0
   );
 
+  const capRemaining =
+    CAP_LIMIT - totalCapUsed;
+
   const contractText = teamContracts
     .map((contract) => {
       return (
@@ -359,13 +371,15 @@ League Total: ${formatScore(leagueTotal)} Rax`
   await client.replyToComment(
     activity.commentId,
 `💰 ${matchedTeam} Salary Cap
-Player | Total Rax | Years Left | Cap Hit This Season
+
+Player | Total Rax | Years Left | Cap Hit
 ${contractText}
-Total Cap Used: ${formatScore(totalCapUsed)} Rax`
+
+Cap Used: ${formatScore(totalCapUsed)} / ${formatScore(CAP_LIMIT)}
+Cap Remaining: ${formatScore(capRemaining)}`
   );
 
   return;
-
 }
     case "$schedule": {
       if (!argumentsText) {
@@ -619,11 +633,28 @@ Use $help to see the available commands.`
   }
 
   const record =
-    ties > 0
-      ? `${wins}-${losses}-${ties}`
-      : `${wins}-${losses}`;
+  ties > 0
+    ? `${wins}-${losses}-${ties}`
+    : `${wins}-${losses}`;
 
-  await client.replyToComment(
+const contracts = await getContracts();
+
+const teamContracts = contracts.filter(
+  (contract) =>
+    normalizeTeamName(contract.team) ===
+    normalizeTeamName(matchedTeam)
+);
+
+const totalCapUsed = teamContracts.reduce(
+  (total, contract) =>
+    total + contract.currentCapHit,
+  0
+);
+
+const capRemaining =
+  CAP_LIMIT - totalCapUsed;
+
+await client.replyToComment(
     activity.commentId,
 `🏆 ${matchedTeam}
 
