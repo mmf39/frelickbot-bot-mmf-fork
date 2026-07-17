@@ -526,18 +526,13 @@ export async function handleCommand(
   client: any,
   activity: any
 ): Promise<void> {
-  const commentContent =
-    activity.additionalInfo?.comment?.content ??
-    activity.comment?.content ??
-    activity.content ??
-    {};
+  const rawText = String(
+  activity.additionalInfo?.comment?.plainText ??
+  activity.comment?.plainText ??
+  ""
+).trim();
 
-  const rawText = extractCommentText(commentContent)
-    .replace(/\n{2,}/g, "\n")
-    .trim();
-
-  console.log("Raw comment content:", JSON.stringify(commentContent));
-  console.log("Parsed raw text:", JSON.stringify(rawText));
+console.log("Raw plain text:", JSON.stringify(rawText));
 
   const fullText = rawText
     .replace(/\s+/g, " ")
