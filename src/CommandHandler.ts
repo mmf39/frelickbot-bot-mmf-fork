@@ -4,16 +4,18 @@ import { getContracts } from "./google/SalaryCapService";
 
 const CAP_LIMIT = 5000;
 
-const LINEUP_ADMINS = ["_shrek", "mmf"];
+const LINEUP_ADMIN_USER_IDS = ["5nxgPpM3","Y3KdBmLn"];
 
-const TEAM_LINEUP_SUBMITTERS: Record<string, string[]> = {
+const TEAM_LINEUP_SUBMITTER_USER_IDS: Record<string, string[]> = {
   turkeys: [],
   gusnem: [],
-  thephantoms: ["timotime"],
+  thephantoms: ["R3XDLZz3"],
   illegals: [],
   pandas: [],
   superkings: [],
-  dreamteam: ["_shrek"],
+  dreamteam: [
+    "5nxgPpM3", "R3XDLZz3"
+  ],
   badbois: [],
   scorpions: [],
   storm: [],
@@ -48,75 +50,64 @@ function displayPlayerName(name: string): string {
 }
 
 
-function normalizeUsername(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/^@/, "");
-}
 
-function getSubmittingUsername(activity: any): string {
-  const possibleUsernames = [
-    activity.additionalInfo?.comment?.user?.userName,
-    activity.additionalInfo?.comment?.user?.username,
-    activity.additionalInfo?.comment?.userName,
-    activity.additionalInfo?.comment?.username,
+function getSubmittingUserId(activity: any): string {
+  const possibleUserIds = [
+    activity.userId,
+    activity.user?.id,
 
-    activity.comment?.user?.userName,
-    activity.comment?.user?.username,
-    activity.comment?.userName,
-    activity.comment?.username,
+    activity.additionalInfo?.userId,
+    activity.additionalInfo?.user?.id,
 
-    activity.additionalInfo?.user?.userName,
-    activity.additionalInfo?.user?.username,
+    activity.comment?.userId,
+    activity.comment?.user?.id,
 
-    activity.user?.userName,
-    activity.user?.username,
-
-    activity.userName,
-    activity.username,
+    activity.additionalInfo?.comment?.userId,
+    activity.additionalInfo?.comment?.user?.id,
   ];
 
-  const username = possibleUsernames.find(
-    (value) =>
-      typeof value === "string" &&
-      value.trim().length > 0
+  const userId =
+    possibleUserIds.find(
+      (value) =>
+        typeof value === "string" &&
+        value.trim().length > 0
+    ) ?? "";
+
+  const normalizedUserId = String(userId).trim();
+
+  console.log(
+    "Lineup submitter user ID:",
+    JSON.stringify(normalizedUserId)
   );
 
-  if (!username) {
+  if (!normalizedUserId) {
     console.log(
       "Could not identify lineup submitter. Activity:",
       JSON.stringify(activity)
     );
-
-    return "";
   }
 
-  return username.trim();
+  return normalizedUserId;
 }
 
 function canSubmitLineupForTeam(
-  username: string,
+  userId: string,
   team: string
 ): boolean {
-  const normalizedUsername = normalizeUsername(username);
+  if (!userId) {
+    return false;
+  }
 
-  if (
-    LINEUP_ADMINS.some(
-      (admin) =>
-        normalizeUsername(admin) === normalizedUsername
-    )
-  ) {
+  if (LINEUP_ADMIN_USER_IDS.includes(userId)) {
     return true;
   }
 
-  const allowedUsers =
-    TEAM_LINEUP_SUBMITTERS[normalizeTeamName(team)] ?? [];
+  const allowedUserIds =
+    TEAM_LINEUP_SUBMITTER_USER_IDS[
+      normalizeTeamName(team)
+    ] ?? [];
 
-  return allowedUsers.some(
-    (allowedUser) =>
-      normalizeUsername(allowedUser) === normalizedUsername
-  );
+  return allowedUserIds.includes(userId);
 }
 
 function parseScore(value: unknown): number | null {
@@ -753,21 +744,21 @@ Mark exactly one player with C.`
         return;
       }
 
-      const submittingUsername =
-        getSubmittingUsername(activity);
+      const submittingUserId =
+        getSubmittingUserId(activity);
 
       if (
-        !submittingUsername ||
+        !submittingUserId ||
         !canSubmitLineupForTeam(
-          submittingUsername,
+          submittingUserId,
           matchedTeam
         )
       ) {
         await client.replyToComment(
           activity.commentId,
-          submittingUsername
-            ? `@${normalizeUsername(submittingUsername)} is not allowed to submit a lineup for ${matchedTeam}.`
-            : `I could not identify who submitted this lineup.`
+          submittingUserId
+            ? `User ${submittingUserId} is not allowed to submit a lineup for ${matchedTeam}.`
+            : "I could not identify who submitted this lineup."
         );
 
         return;
