@@ -656,13 +656,15 @@ const capRemaining =
 
 await client.replyToComment(
     activity.commentId,
-`🏆 ${matchedTeam}
+` ${matchedTeam}
 
 Record: ${record}
 Next Game: ${nextGameText}
 Last Game: ${lastGameText}
 Current Streak: ${currentStreak}
 Points For: ${formatScore(pointsFor)}
-Points Against: ${formatScore(pointsAgainst)}`
+Points Against: ${formatScore(pointsAgainst)}
+Cap Used: ${formatScore(totalCapUsed)} / ${formatScore(CAP_LIMIT)}
+Cap Remaining: ${formatScore(capRemaining)}`
   );
 }
