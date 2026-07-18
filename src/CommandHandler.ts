@@ -232,6 +232,49 @@ function parseScheduleDate(value: string): Date | null {
   return new Date(year, month - 1, day);
 }
 
+function formatDateForApi(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function isSameCalendarDate(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+function getOpponentForTeamOnDate(
+  schedule: Awaited<ReturnType<typeof getSchedule>>,
+  team: string,
+  selectedDate: Date
+): string | null {
+  const game = schedule.find((item) => {
+    const gameDate = parseScheduleDate(String(item.date ?? ""));
+
+    if (!gameDate || !isSameCalendarDate(gameDate, selectedDate)) {
+      return false;
+    }
+
+    return (
+      normalizeTeamName(item.away) === normalizeTeamName(team) ||
+      normalizeTeamName(item.home) === normalizeTeamName(team)
+    );
+  });
+
+  if (!game) {
+    return null;
+  }
+
+  return normalizeTeamName(game.away) === normalizeTeamName(team)
+    ? game.home
+    : game.away;
+}
+
 function formatScore(score: number): string {
   return score.toLocaleString("en-US");
 }
@@ -457,9 +500,7 @@ function formatDivisionStandings(
           : standing.gamesBehind.toFixed(1);
 
     return (
-      `${index + 1}. ${getTeamEmoji(standing.team)} ` +
-      `${standing.team}
-` +
+      `${index + 1}. ${getTeamEmoji(standing.team)} ${standing.team}\n` +
       `   Record: ${record} | GB: ${gamesBehind} | ` +
       `PF: ${formatScore(standing.pointsFor)} | ` +
       `PA: ${formatScore(standing.pointsAgainst)}`
@@ -486,6 +527,7 @@ function normalizePlayerName(value: string): string {
 function parseLineupCommand(
   rawText: string
 ): {
+  dateText: string;
   teamText: string;
   players: string[];
   captain: string;
@@ -513,10 +555,29 @@ function parseLineupCommand(
     return null;
   }
 
-  const teamText = lines[0];
-  const playerLines = lines.slice(1, 7);
+  let dateText = "today";
+  let teamLineIndex = 0;
+
+  if (
+    /^today$/i.test(lines[0]) ||
+    /^\d{1,2}\/\d{1,2}(?:\/\d{2,4})?$/.test(lines[0])
+  ) {
+    dateText = lines[0];
+    teamLineIndex = 1;
+  }
+
+  if (lines.length < teamLineIndex + 7) {
+    return null;
+  }
+
+  const teamText = lines[teamLineIndex];
+  const playerLines = lines.slice(
+    teamLineIndex + 1,
+    teamLineIndex + 7
+  );
 
   let captain = "";
+
   const players = playerLines.map((line) => {
     const isCaptain =
       /\s+(?:c|\(c\)|captain)$/i.test(line);
@@ -539,6 +600,7 @@ function parseLineupCommand(
   });
 
   return {
+    dateText,
     teamText,
     players,
     captain,
@@ -546,7 +608,10 @@ function parseLineupCommand(
 }
 
 async function submitLineupToSheet(
+  action: "submitLineup" | "saveQueuedLineup",
+  date: string,
   team: string,
+  opponent: string,
   players: string[],
   captain: string
 ): Promise<{
@@ -567,8 +632,10 @@ async function submitLineupToSheet(
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      action: "submitLineup",
+      action,
+      date,
       team,
+      opponent,
       lineup: players,
       captain,
       submittedAt: new Date().toISOString(),
@@ -712,7 +779,7 @@ $standing [division] - Show division standings
 $roster [team] - Show a team's roster
 $cap [team/all] - Show salary-cap information
 $live [team] - Show live game scores
-$lineup - Submit a six-player lineup
+$lineup [today/date] - Submit or queue a six-player lineup
 $[team] - Show a team's information`
   );
 
@@ -747,9 +814,23 @@ $[team] - Show a team's information`
       if (!parsedLineup) {
         await client.replyToComment(
           activity.commentId,
-`Use this exact format:
+`Use one of these formats:
 
+Today's lineup:
 @_shrek $lineup
+Gus N Em
+Player 1
+Player 2 C
+Player 3
+Player 4
+Player 5
+Player 6
+
+Today's lineup can also use:
+@_shrek $lineup today
+
+Future lineup:
+@_shrek $lineup 7/22
 Gus N Em
 Player 1
 Player 2 C
@@ -768,6 +849,47 @@ Mark exactly one player with C.`
         await client.replyToComment(
           activity.commentId,
           "Please mark exactly one player with C."
+        );
+
+        return;
+      }
+
+      const today = getEasternToday();
+      let selectedDate = today;
+
+      if (!/^today$/i.test(parsedLineup.dateText)) {
+        const parsedDate = parseScheduleDate(
+          parsedLineup.dateText
+        );
+
+        if (!parsedDate) {
+          await client.replyToComment(
+            activity.commentId,
+            `I could not read the date "${parsedLineup.dateText}". Use today or a date like 7/22.`
+          );
+
+          return;
+        }
+
+        selectedDate = parsedDate;
+      }
+
+      const todayStart = new Date(
+        today.getFullYear(),
+        today.getMonth(),
+        today.getDate()
+      );
+
+      const selectedStart = new Date(
+        selectedDate.getFullYear(),
+        selectedDate.getMonth(),
+        selectedDate.getDate()
+      );
+
+      if (selectedStart.getTime() < todayStart.getTime()) {
+        await client.replyToComment(
+          activity.commentId,
+          "You cannot submit a lineup for a past date."
         );
 
         return;
@@ -807,6 +929,22 @@ Mark exactly one player with C.`
           submittingUserId
             ? `Sorry, you are not allowed to submit a lineup for ${matchedTeam}.`
             : "I could not identify who submitted this lineup."
+        );
+
+        return;
+      }
+
+      const schedule = await getSchedule();
+      const opponent = getOpponentForTeamOnDate(
+        schedule,
+        matchedTeam,
+        selectedDate
+      );
+
+      if (!opponent) {
+        await client.replyToComment(
+          activity.commentId,
+          `${matchedTeam} does not have a scheduled game on ${parsedLineup.dateText}.`
         );
 
         return;
@@ -887,16 +1025,36 @@ ${missingPlayers.map((player) => `• ${player}`).join("\n")}`
         return;
       }
 
+      const isToday = isSameCalendarDate(
+        selectedDate,
+        today
+      );
+
+      const action = isToday
+        ? "submitLineup"
+        : "saveQueuedLineup";
+
+      const apiDate = formatDateForApi(selectedDate);
+
       try {
         await submitLineupToSheet(
+          action,
+          apiDate,
           matchedTeam,
+          opponent,
           resolvedPlayers,
           resolvedCaptain
         );
 
+        const statusText = isToday
+          ? "submitted"
+          : `queued for ${parsedLineup.dateText}`;
+
         await client.replyToComment(
           activity.commentId,
-`${getTeamEmoji(matchedTeam)} ${matchedTeam} lineup submitted.
+`${getTeamEmoji(matchedTeam)} ${matchedTeam} lineup ${statusText}.
+
+Opponent: ${getTeamEmoji(opponent)} ${opponent}
 
 ${resolvedPlayers
   .map(
