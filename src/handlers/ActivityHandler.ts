@@ -4,18 +4,30 @@ export async function handleActivity(
   client: any,
   activity: any
 ): Promise<void> {
-  // Only process mentions
-  if (activity.type !== "mention") {
+  const allowedActivityTypes = [
+    "mention",
+    "reply",
+  ];
+
+  if (!allowedActivityTypes.includes(activity.type)) {
     return;
   }
 
-  // Ignore our own comments
   const session = client.getSession();
 
-  if (activity.createdBy?.id === session?.userId) {
+  const activityUserId = String(
+    activity.createdBy?.id ??
+    activity.createdByUserId ??
+    activity.authorUserId ??
+    ""
+  );
+
+  if (
+    activityUserId &&
+    activityUserId === session?.userId
+  ) {
     return;
   }
 
-  // Pass the activity to the command handler
   await handleCommand(client, activity);
 }
