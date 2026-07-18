@@ -714,18 +714,6 @@ $cap [team/all] - Show salary-cap information
 $live [team] - Show live game scores
 $lineup - Submit a six-player lineup
 $[team] - Show a team's information
-
-Examples:
-@_shrek $schedule Gus N Em
-@_shrek $standing north
-@_shrek $standing south
-@_shrek $roster Gus N Em
-@_shrek $cap Gus N Em
-@_shrek $cap all
-@_shrek $live
-@_shrek $live Gus N Em
-@_shrek $lineup\nGus N Em\nPlayer 1\nPlayer 2 C\nPlayer 3\nPlayer 4\nPlayer 5\nPlayer 6
-@_shrek $Gus N Em`
       );
 
       return;
