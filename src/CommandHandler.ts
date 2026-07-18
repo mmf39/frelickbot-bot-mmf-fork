@@ -701,8 +701,8 @@ console.log("Raw plain text:", JSON.stringify(rawText));
 
   switch (command) {
     case "$help": {
-      await client.replyToComment(
-        activity.commentId,
+  await client.replyToComment(
+    activity.commentId,
 `📖 Shrek Help
 
 $help - Show this menu
@@ -713,11 +713,11 @@ $roster [team] - Show a team's roster
 $cap [team/all] - Show salary-cap information
 $live [team] - Show live game scores
 $lineup - Submit a six-player lineup
-$[team] - Show a team's information
-      );
+$[team] - Show a team's information`
+  );
 
-      return;
-    }
+  return;
+}
 
     case "$ping": {
       await client.replyToComment(
