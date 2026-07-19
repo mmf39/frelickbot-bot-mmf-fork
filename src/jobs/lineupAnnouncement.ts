@@ -180,30 +180,42 @@ function extractScheduleGames(
     record.games,
     record.events,
     record.schedule,
-    record.data,
     record.results,
   ];
 
-  for (
-    const value of possibleArrays
-  ) {
+  for (const value of possibleArrays) {
     if (Array.isArray(value)) {
       return value;
     }
   }
 
-  if (
-    typeof record.data === "object" &&
-    record.data !== null
+  const possibleNestedObjects = [
+    record.content,
+    record.data,
+    record.result,
+    record.response,
+  ];
+
+  for (
+    const nestedValue of possibleNestedObjects
   ) {
-    return extractScheduleGames(
-      record.data
-    );
+    if (
+      typeof nestedValue === "object" &&
+      nestedValue !== null
+    ) {
+      const nestedGames =
+        extractScheduleGames(
+          nestedValue
+        );
+
+      if (nestedGames.length > 0) {
+        return nestedGames;
+      }
+    }
   }
 
   return [];
 }
-
 function getGameStartValue(
   game: unknown
 ): string | number | null {
@@ -589,11 +601,13 @@ export async function postTomorrowGames(
       tomorrow.isoDate
     );
 
-  if (!earliestGame) {
-    throw new Error(
-      `No eligible sports games found for ${tomorrow.isoDate}.`
-    );
-  }
+ if (!earliestGame) {
+  console.log(
+    `No eligible sports games found for ${tomorrow.isoDate}.`
+  );
+
+  return;
+}
 
   const lockTime =
     formatEasternTime(
