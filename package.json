@@ -11,6 +11,7 @@
   "gotd": "tsx src/jobs/gotd.ts",
   "lineup-announcement": "tsx src/jobs/lineupAnnouncement.ts",
   "final-scores": "tsx src/jobs/FinalScoreRecaps.ts",
+   "daily-score-rankings": "tsx src/jobs/DailyScoreRankings.ts"
   "listener": "tsx src/listener.ts"
   },
   "keywords": [],
