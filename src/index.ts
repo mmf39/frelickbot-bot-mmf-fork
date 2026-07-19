@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { RealClient } from "./core/RealClient";
-import handleActivity from "./CommandHandler";
+import { handleActivity } from "./CommandHandler";
 import { startDailyLineupAnnouncement } from "./jobs/lineupAnnouncement";
 
 async function main() {
