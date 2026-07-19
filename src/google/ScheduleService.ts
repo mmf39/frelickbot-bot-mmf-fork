@@ -10,7 +10,10 @@ export interface ScheduledGame {
 }
 
 export async function getSchedule(): Promise<ScheduledGame[]> {
-const rows = await readSheet("Schedule!A:F");
+  const rows = await readSheet(
+    process.env.GOOGLE_SPREADSHEET_ID!,
+    "Schedule!A:F"
+  );
 
   return rows
     .slice(1)
