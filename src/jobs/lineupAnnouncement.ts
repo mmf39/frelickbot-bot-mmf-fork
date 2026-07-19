@@ -1,4 +1,5 @@
-import cron from "node-cron";
+import "dotenv/config";
+
 import { RealClient } from "../core/RealClient";
 import { getScheduleForDate } from "../google/ScheduleService";
 
@@ -36,45 +37,73 @@ function getTomorrowEastern(): {
   sheetDate: string;
   displayDate: string;
 } {
-  const easternNowText = new Intl.DateTimeFormat(
-    "en-CA",
-    {
-      timeZone: "America/New_York",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hourCycle: "h23",
-    }
-  ).format(new Date());
+  const easternDateParts =
+    new Intl.DateTimeFormat(
+      "en-US",
+      {
+        timeZone: "America/New_York",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }
+    ).formatToParts(new Date());
 
-  const [
-    datePart,
-    timePart,
-  ] = easternNowText.split(", ");
-
-  const easternNow = new Date(
-    `${datePart}T${timePart}`
+  const year = Number(
+    easternDateParts.find(
+      (part) => part.type === "year"
+    )?.value
   );
 
-  easternNow.setDate(easternNow.getDate() + 1);
+  const month = Number(
+    easternDateParts.find(
+      (part) => part.type === "month"
+    )?.value
+  );
 
-  const year = easternNow.getFullYear();
-  const month = String(
-    easternNow.getMonth() + 1
-  ).padStart(2, "0");
-  const day = String(
-    easternNow.getDate()
-  ).padStart(2, "0");
+  const day = Number(
+    easternDateParts.find(
+      (part) => part.type === "day"
+    )?.value
+  );
+
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    !Number.isInteger(day)
+  ) {
+    throw new Error(
+      "Could not determine the current Eastern date."
+    );
+  }
+
+  const tomorrow = new Date(
+    Date.UTC(
+      year,
+      month - 1,
+      day + 1
+    )
+  );
+
+  const tomorrowYear =
+    tomorrow.getUTCFullYear();
+
+  const tomorrowMonth =
+    tomorrow.getUTCMonth() + 1;
+
+  const tomorrowDay =
+    tomorrow.getUTCDate();
 
   return {
-    isoDate: `${year}-${month}-${day}`,
+    isoDate:
+      `${tomorrowYear}-` +
+      `${String(tomorrowMonth).padStart(2, "0")}-` +
+      `${String(tomorrowDay).padStart(2, "0")}`,
+
     sheetDate:
-      `${Number(month)}/${Number(day)}`,
+      `${tomorrowMonth}/${tomorrowDay}`,
+
     displayDate:
-      `${Number(month)}/${Number(day)}`,
+      `${tomorrowMonth}/${tomorrowDay}`,
   };
 }
 
@@ -82,43 +111,57 @@ async function fetchScheduleForSport(
   sport: LineupLockSport,
   date: string
 ): Promise<unknown> {
-  const url = new URL(SCHEDULE_API_URL);
+  const url = new URL(
+    SCHEDULE_API_URL
+  );
 
-  url.searchParams.set("sport", sport);
-  url.searchParams.set("day", date);
+  url.searchParams.set(
+    "sport",
+    sport
+  );
 
-  const response = await fetch(url, {
-    headers: {
-      accept: "*/*",
-    },
-  });
+  url.searchParams.set(
+    "day",
+    date
+  );
+
+  console.log(
+    `Fetching ${sport} schedule for ${date}...`
+  );
+
+  const response = await fetch(
+    url,
+    {
+      headers: {
+        accept: "application/json",
+      },
+    }
+  );
+
+  const text =
+    await response.text();
 
   if (!response.ok) {
     throw new Error(
       `Failed to fetch ${sport} schedule: ` +
-      `${response.status} ${response.statusText}`
+      `${response.status} ${response.statusText}. ` +
+      text.slice(0, 300)
     );
   }
-
-  const contentType =
-    response.headers.get("content-type") ?? "";
-
-  if (contentType.includes("application/json")) {
-    return response.json();
-  }
-
-  const text = await response.text();
 
   try {
     return JSON.parse(text);
   } catch {
     throw new Error(
-      `${sport} schedule did not return valid JSON.`
+      `${sport} schedule did not return valid JSON. ` +
+      text.slice(0, 300)
     );
   }
 }
 
-function extractScheduleGames(data: unknown): unknown[] {
+function extractScheduleGames(
+  data: unknown
+): unknown[] {
   if (Array.isArray(data)) {
     return data;
   }
@@ -141,7 +184,9 @@ function extractScheduleGames(data: unknown): unknown[] {
     record.results,
   ];
 
-  for (const value of possibleArrays) {
+  for (
+    const value of possibleArrays
+  ) {
     if (Array.isArray(value)) {
       return value;
     }
@@ -151,7 +196,9 @@ function extractScheduleGames(data: unknown): unknown[] {
     typeof record.data === "object" &&
     record.data !== null
   ) {
-    return extractScheduleGames(record.data);
+    return extractScheduleGames(
+      record.data
+    );
   }
 
   return [];
@@ -182,7 +229,9 @@ function getGameStartValue(
     record.start,
   ];
 
-  for (const value of possibleValues) {
+  for (
+    const value of possibleValues
+  ) {
     if (
       typeof value === "string" ||
       typeof value === "number"
@@ -197,57 +246,110 @@ function getGameStartValue(
 function parseStartDate(
   value: string | number
 ): Date | null {
-  const parsed =
-    typeof value === "number" &&
-    value < 10_000_000_000
-      ? new Date(value * 1000)
-      : new Date(value);
+  let parsed: Date;
 
-  return Number.isNaN(parsed.getTime())
-    ? null
-    : parsed;
+  if (
+    typeof value === "number"
+  ) {
+    parsed =
+      value < 10_000_000_000
+        ? new Date(value * 1000)
+        : new Date(value);
+  } else if (
+    /^\d+$/.test(value.trim())
+  ) {
+    const numericValue =
+      Number(value);
+
+    parsed =
+      numericValue <
+      10_000_000_000
+        ? new Date(
+            numericValue * 1000
+          )
+        : new Date(
+            numericValue
+          );
+  } else {
+    parsed = new Date(value);
+  }
+
+  if (
+    Number.isNaN(
+      parsed.getTime()
+    )
+  ) {
+    return null;
+  }
+
+  return parsed;
 }
 
 async function getEarliestLineupLockGame(
   date: string
 ): Promise<EarliestGame | null> {
-  const results = await Promise.allSettled(
-    LINEUP_LOCK_SPORTS.map(
-      async (sport) => ({
-        sport,
-        data: await fetchScheduleForSport(
+  const results =
+    await Promise.allSettled(
+      LINEUP_LOCK_SPORTS.map(
+        async (sport) => ({
           sport,
-          date
-        ),
-      })
-    )
-  );
+          data:
+            await fetchScheduleForSport(
+              sport,
+              date
+            ),
+        })
+      )
+    );
 
-  const games: EarliestGame[] = [];
+  const games: EarliestGame[] =
+    [];
 
-  for (const result of results) {
-    if (result.status !== "fulfilled") {
+  for (
+    const result of results
+  ) {
+    if (
+      result.status !==
+      "fulfilled"
+    ) {
       console.error(
         "Schedule request failed:",
         result.reason
       );
+
       continue;
     }
 
-    const { sport, data } = result.value;
+    const {
+      sport,
+      data,
+    } = result.value;
+
     const sportGames =
       extractScheduleGames(data);
 
-    for (const rawGame of sportGames) {
-      const startValue =
-        getGameStartValue(rawGame);
+    console.log(
+      `${sport}: found ${sportGames.length} games.`
+    );
 
-      if (startValue === null) {
+    for (
+      const rawGame of sportGames
+    ) {
+      const startValue =
+        getGameStartValue(
+          rawGame
+        );
+
+      if (
+        startValue === null
+      ) {
         continue;
       }
 
       const startsAt =
-        parseStartDate(startValue);
+        parseStartDate(
+          startValue
+        );
 
       if (!startsAt) {
         continue;
@@ -262,19 +364,22 @@ async function getEarliestLineupLockGame(
   }
 
   games.sort(
-    (a, b) =>
-      a.startsAt.getTime() -
-      b.startsAt.getTime()
+    (first, second) =>
+      first.startsAt.getTime() -
+      second.startsAt.getTime()
   );
 
   return games[0] ?? null;
 }
 
-function formatEasternTime(date: Date): string {
+function formatEasternTime(
+  date: Date
+): string {
   return new Intl.DateTimeFormat(
     "en-US",
     {
-      timeZone: "America/New_York",
+      timeZone:
+        "America/New_York",
       hour: "numeric",
       minute: "2-digit",
       timeZoneName: "short",
@@ -288,25 +393,29 @@ function getEasternHourMinute(
   hour: number;
   minute: number;
 } {
-  const parts = new Intl.DateTimeFormat(
-    "en-US",
-    {
-      timeZone: "America/New_York",
-      hour: "2-digit",
-      minute: "2-digit",
-      hourCycle: "h23",
-    }
-  ).formatToParts(date);
+  const parts =
+    new Intl.DateTimeFormat(
+      "en-US",
+      {
+        timeZone:
+          "America/New_York",
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23",
+      }
+    ).formatToParts(date);
 
   const hour = Number(
     parts.find(
-      (part) => part.type === "hour"
+      (part) =>
+        part.type === "hour"
     )?.value
   );
 
   const minute = Number(
     parts.find(
-      (part) => part.type === "minute"
+      (part) =>
+        part.type === "minute"
     )?.value
   );
 
@@ -341,82 +450,137 @@ async function saveLineupLockTime(
   const {
     hour,
     minute,
-  } = getEasternHourMinute(startsAt);
+  } = getEasternHourMinute(
+    startsAt
+  );
 
   const display =
-    formatEasternTime(startsAt);
+    formatEasternTime(
+      startsAt
+    );
 
-  const response = await fetch(apiUrl, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      action: "setLineupLockTime",
-      date,
-      hour,
-      minute,
-      display,
-    }),
-  });
+  console.log(
+    `Saving lineup lock for ${date}: ${display}`
+  );
 
-  const text = await response.text();
+  const response = await fetch(
+    apiUrl,
+    {
+      method: "POST",
 
-  let result: AppsScriptResponse;
+      headers: {
+        "content-type":
+          "application/json",
+      },
+
+      body: JSON.stringify({
+        action:
+          "setLineupLockTime",
+        date,
+        hour,
+        minute,
+        display,
+      }),
+    }
+  );
+
+  const text =
+    await response.text();
+
+  let result:
+    AppsScriptResponse;
 
   try {
     result =
-      JSON.parse(text) as AppsScriptResponse;
+      JSON.parse(
+        text
+      ) as AppsScriptResponse;
   } catch {
     throw new Error(
-      "Apps Script returned invalid JSON."
+      "Apps Script returned invalid JSON: " +
+      text.slice(0, 300)
     );
   }
 
-  if (!response.ok || result.ok !== true) {
+  if (
+    !response.ok ||
+    result.ok !== true
+  ) {
     throw new Error(
       result.message ??
-      `Apps Script request failed: ${response.status}`
+        `Apps Script request failed: ${response.status}`
     );
   }
+
+  console.log(
+    "Lineup lock time saved."
+  );
 }
 
-function getTeamEmoji(team: string): string {
+function getTeamEmoji(
+  team: string
+): string {
   const normalized = team
     .toLowerCase()
-    .replace(/[^a-z0-9]/g, "");
+    .replace(
+      /[^a-z0-9]/g,
+      ""
+    );
 
-  const emojis: Record<string, string> = {
-    turkeys: "🦃",
-    gusnem: "💪",
-    thephantoms: "👻",
-    illegals: "🕶️",
-    pandas: "🐼",
-    superkings: "👑",
-    dreamteam: "💭",
-    badbois: "😈",
-    scorpions: "🦂",
-    storm: "⛈️",
-  };
+  const emojis:
+    Record<string, string> = {
+      turkeys: "🦃",
+      gusnem: "💪",
+      thephantoms: "👻",
+      illegals: "🕶️",
+      pandas: "🐼",
+      superkings: "👑",
+      dreamteam: "💭",
+      badbois: "😈",
+      scorpions: "🦂",
+      storm: "⛈️",
+    };
 
-  return emojis[normalized] ?? "🛡️";
+  return (
+    emojis[normalized] ??
+    "🛡️"
+  );
 }
 
-async function postTomorrowGames(
+export async function postTomorrowGames(
   client: RealClient
 ): Promise<void> {
+  console.log(
+    "Starting daily lineup announcement..."
+  );
+
   const tomorrow =
     getTomorrowEastern();
+
+  console.log(
+    `Tomorrow's Eastern date: ${tomorrow.isoDate}`
+  );
+
+  console.log(
+    `Checking RSKL schedule for ${tomorrow.sheetDate}...`
+  );
 
   const leagueGames =
     await getScheduleForDate(
       tomorrow.sheetDate
     );
 
-  if (leagueGames.length === 0) {
+  console.log(
+    `Found ${leagueGames.length} RSKL games.`
+  );
+
+  if (
+    leagueGames.length === 0
+  ) {
     console.log(
       `No RSKL games scheduled for ${tomorrow.sheetDate}.`
     );
+
     return;
   }
 
@@ -426,27 +590,31 @@ async function postTomorrowGames(
     );
 
   if (!earliestGame) {
-    console.log(
+    throw new Error(
       `No eligible sports games found for ${tomorrow.isoDate}.`
     );
-    return;
   }
-
-  await saveLineupLockTime(
-    tomorrow.isoDate,
-    earliestGame.startsAt
-  );
 
   const lockTime =
     formatEasternTime(
       earliestGame.startsAt
     );
 
-  const gameLines = leagueGames.map(
-    (game) =>
-      `${getTeamEmoji(game.away)} ${game.away} vs ` +
-      `${getTeamEmoji(game.home)} ${game.home}`
+  console.log(
+    `Earliest game is ${earliestGame.sport} at ${lockTime}.`
   );
+
+  await saveLineupLockTime(
+    tomorrow.isoDate,
+    earliestGame.startsAt
+  );
+
+  const gameLines =
+    leagueGames.map(
+      (game) =>
+        `${getTeamEmoji(game.away)} ${game.away} vs ` +
+        `${getTeamEmoji(game.home)} ${game.home}`
+    );
 
   const message =
     `📅 Games ${tomorrow.displayDate}\n\n` +
@@ -454,7 +622,15 @@ async function postTomorrowGames(
     `Send lineups by posting ` +
     `@rsklbot $lineup by ${lockTime}.`;
 
-  await client.postToGroup(message);
+  console.log(
+    "Posting this message:"
+  );
+
+  console.log(message);
+
+  await client.postToGroup(
+    message
+  );
 
   console.log(
     `Posted tomorrow's games for ${tomorrow.isoDate}.`
@@ -465,27 +641,32 @@ async function postTomorrowGames(
   );
 }
 
-export function startDailyLineupAnnouncement(
-  client: RealClient
-): void {
-  cron.schedule(
-    "0 21 * * *",
-    async () => {
-      try {
-        await postTomorrowGames(client);
-      } catch (error) {
-        console.error(
-          "Daily lineup announcement failed:",
-          error
-        );
-      }
-    },
-    {
-      timezone: "America/New_York",
-    }
+async function main(): Promise<void> {
+  console.log(
+    "Starting Railway daily lineup job..."
+  );
+
+  const client =
+    new RealClient();
+
+  client.loadSession();
+
+  await postTomorrowGames(
+    client
   );
 
   console.log(
-    "✓ Daily lineup announcement scheduled for 9:00 PM ET"
+    "Railway daily lineup job finished."
   );
 }
+
+main().catch(
+  (error: unknown) => {
+    console.error(
+      "Daily lineup announcement failed:",
+      error
+    );
+
+    process.exit(1);
+  }
+);
