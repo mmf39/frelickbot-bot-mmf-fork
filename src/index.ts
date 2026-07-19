@@ -2,15 +2,14 @@ import "dotenv/config";
 
 import { RealClient } from "./core/RealClient";
 import { handleActivity } from "./handlers/ActivityHandler";
-import { startDailyLineupAnnouncement } from "./jobs/lineupAnnouncement";
+
 
 async function main() {
   const client = new RealClient();
 
   client.loadSession();
 
-  // Start the nightly 9:00 PM ET lineup announcement scheduler
-  startDailyLineupAnnouncement(client);
+
 
   console.log("==========================");
   console.log("FrelickBot Started");
