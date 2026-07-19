@@ -607,17 +607,9 @@ function parseLineupCommand(
   };
 }
 
-async function submitLineupToSheet(
-  action: "submitLineup" | "saveQueuedLineup",
-  date: string,
-  team: string,
-  opponent: string,
-  players: string[],
-  captain: string
-): Promise<{
-  ok: boolean;
-  message?: string;
-}> {
+async function callLineupApi(
+  body: Record<string, unknown>
+): Promise<any> {
   const lineupApiUrl = process.env.LINEUP_API_URL;
 
   if (!lineupApiUrl) {
@@ -631,23 +623,12 @@ async function submitLineupToSheet(
     headers: {
       "content-type": "application/json",
     },
-    body: JSON.stringify({
-      action,
-      date,
-      team,
-      opponent,
-      lineup: players,
-      captain,
-      submittedAt: new Date().toISOString(),
-    }),
+    body: JSON.stringify(body),
   });
 
   const responseText = await response.text();
 
-  let result: {
-    ok: boolean;
-    message?: string;
-  };
+  let result: any;
 
   try {
     result = JSON.parse(responseText);
@@ -665,6 +646,28 @@ async function submitLineupToSheet(
   }
 
   return result;
+}
+
+async function submitLineupToSheet(
+  action: "submitLineup" | "saveQueuedLineup",
+  date: string,
+  team: string,
+  opponent: string,
+  players: string[],
+  captain: string
+): Promise<{
+  ok: boolean;
+  message?: string;
+}> {
+  return callLineupApi({
+    action,
+    date,
+    team,
+    opponent,
+    lineup: players,
+    captain,
+    submittedAt: new Date().toISOString(),
+  });
 }
 
 function extractCommentText(value: any): string {
@@ -726,7 +729,117 @@ function extractCommentText(value: any): string {
 
   return nestedText;
 }
+type LineupLockTime = {
+  hour: number;
+  minute: number;
+  display: string;
+};
 
+function parseLineupLockTime(value: string): LineupLockTime | null {
+  const cleaned = value.trim().toUpperCase();
+
+  const match = cleaned.match(
+    /^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)$/
+  );
+
+  if (!match) {
+    return null;
+  }
+
+  let hour = Number(match[1]);
+  const minute = Number(match[2] ?? "0");
+  const period = match[3];
+
+  if (
+    hour < 1 ||
+    hour > 12 ||
+    minute < 0 ||
+    minute > 59
+  ) {
+    return null;
+  }
+
+  if (period === "AM") {
+    if (hour === 12) {
+      hour = 0;
+    }
+  } else if (hour !== 12) {
+    hour += 12;
+  }
+
+  const displayHour = Number(match[1]);
+  const displayMinute = String(minute).padStart(2, "0");
+
+  return {
+    hour,
+    minute,
+    display: `${displayHour}:${displayMinute} ${period} ET`,
+  };
+}
+
+function getEasternTimeParts(): {
+  hour: number;
+  minute: number;
+} {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date());
+
+  return {
+    hour: Number(
+      parts.find((part) => part.type === "hour")?.value ?? 0
+    ),
+    minute: Number(
+      parts.find((part) => part.type === "minute")?.value ?? 0
+    ),
+  };
+}
+
+function isPastLineupLockTime(
+  lockTime: LineupLockTime
+): boolean {
+  const current = getEasternTimeParts();
+
+  const currentMinutes =
+    current.hour * 60 + current.minute;
+
+  const lockMinutes =
+    lockTime.hour * 60 + lockTime.minute;
+
+  return currentMinutes >= lockMinutes;
+}
+
+
+async function getLineupLockTime(): Promise<LineupLockTime> {
+  const result = await callLineupApi({
+    action: "getLineupLockTime",
+  });
+
+  const hour = Number(result.hour);
+  const minute = Number(result.minute);
+
+  if (
+    !Number.isInteger(hour) ||
+    hour < 0 ||
+    hour > 23 ||
+    !Number.isInteger(minute) ||
+    minute < 0 ||
+    minute > 59
+  ) {
+    throw new Error("The saved lineup lock time is invalid.");
+  }
+
+  return {
+    hour,
+    minute,
+    display:
+      String(result.display ?? "").trim() ||
+      `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")} ET`,
+  };
+}
 export async function handleCommand(
   client: any,
   activity: any
@@ -770,7 +883,7 @@ console.log("Raw plain text:", JSON.stringify(rawText));
     case "$help": {
   await client.replyToComment(
     activity.commentId,
-`📖 Shrek Help
+`📖 RSKL Bot Help
 
 $help - Show this menu
 $ping - Test the bot
@@ -779,7 +892,7 @@ $standing [division] - Show division standings
 $roster [team] - Show a team's roster
 $cap [team/all] - Show salary-cap information
 $live [team] - Show live game scores
-$lineup [today/date] - Submit or queue a six-player lineup
+$lineup [today/date] - Submit or queue a six-player lineup\n$lineup lock time [time] - Set the daily Eastern lineup deadline
 $[team] - Show a team's information`
   );
 
@@ -796,6 +909,68 @@ $[team] - Show a team's information`
     }
 
     case "$lineup": {
+      const lockTimeCommand = argumentsText.match(
+        /^lock\s+time\s+(.+)$/i
+      );
+
+      if (lockTimeCommand) {
+        const submittingUserId = getSubmittingUserId(activity);
+
+        if (
+          !submittingUserId ||
+          !LINEUP_ADMIN_USER_IDS.includes(submittingUserId)
+        ) {
+          await client.replyToComment(
+            activity.commentId,
+            "Sorry, only a lineup administrator can change the lineup lock time."
+          );
+
+          return;
+        }
+
+        const parsedLockTime = parseLineupLockTime(
+          lockTimeCommand[1]
+        );
+
+        if (!parsedLockTime) {
+          await client.replyToComment(
+            activity.commentId,
+`I could not read that time.
+
+Use a time like:
+@rsklbot $lineup lock time 6:55 PM
+@rsklbot $lineup lock time 11:30 AM`
+          );
+
+          return;
+        }
+
+        try {
+          await callLineupApi({
+            action: "setLineupLockTime",
+            hour: parsedLockTime.hour,
+            minute: parsedLockTime.minute,
+            display: parsedLockTime.display,
+          });
+
+          await client.replyToComment(
+            activity.commentId,
+            `🔒 The daily lineup lock time is now ${parsedLockTime.display}.`
+          );
+        } catch (error) {
+          console.error("Could not save lineup lock time:", error);
+
+          await client.replyToComment(
+            activity.commentId,
+            error instanceof Error
+              ? `Could not save the lineup lock time: ${error.message}`
+              : "Could not save the lineup lock time."
+          );
+        }
+
+        return;
+      }
+
       let parsedLineup;
 
       try {
@@ -817,7 +992,7 @@ $[team] - Show a team's information`
 `Use one of these formats:
 
 Today's lineup:
-@_shrek $lineup
+@rsklbot $lineup
 Gus N Em
 Player 1
 Player 2 C
@@ -827,10 +1002,10 @@ Player 5
 Player 6
 
 Today's lineup can also use:
-@_shrek $lineup today
+@rsklbot $lineup today
 
 Future lineup:
-@_shrek $lineup 7/22
+@rsklbot $lineup 7/22
 Gus N Em
 Player 1
 Player 2 C
@@ -885,6 +1060,37 @@ Mark exactly one player with C.`
         selectedDate.getMonth(),
         selectedDate.getDate()
       );
+
+      const isToday = isSameCalendarDate(
+        selectedDate,
+        today
+      );
+
+      if (isToday) {
+        try {
+          const lockTime = await getLineupLockTime();
+
+          if (isPastLineupLockTime(lockTime)) {
+            await client.replyToComment(
+              activity.commentId,
+              `🔒 Lineups are locked for today. The deadline was ${lockTime.display}.`
+            );
+
+            return;
+          }
+        } catch (error) {
+          console.error("Could not check lineup lock time:", error);
+
+          await client.replyToComment(
+            activity.commentId,
+            error instanceof Error
+              ? `Could not check the lineup lock time: ${error.message}`
+              : "Could not check the lineup lock time."
+          );
+
+          return;
+        }
+      }
 
       if (selectedStart.getTime() < todayStart.getTime()) {
         await client.replyToComment(
@@ -1025,11 +1231,6 @@ ${missingPlayers.map((player) => `• ${player}`).join("\n")}`
         return;
       }
 
-      const isToday = isSameCalendarDate(
-        selectedDate,
-        today
-      );
-
       const action = isToday
         ? "submitLineup"
         : "saveQueuedLineup";
@@ -1089,7 +1290,7 @@ ${resolvedPlayers
 `Please enter a team name.
 
 Example:
-@_shrek $roster Gus N Em`
+@rsklbot $roster Gus N Em`
         );
 
         return;
@@ -1148,8 +1349,8 @@ ${rosterLines.join("\n")}`
 `Please enter a team name or "all".
 
 Examples:
-@_shrek $cap Gus N Em
-@_shrek $cap all`
+@rsklbot $cap Gus N Em
+@rsklbot $cap all`
         );
 
         return;
@@ -1396,11 +1597,11 @@ ${liveGameLines}`
 `Please enter North or South.
 
 Examples:
-@_shrek $standing north
-@_shrek $standing south
+@rsklbot $standing north
+@rsklbot $standing south
 
 You can also use:
-@_shrek $standing`
+@rsklbot $standing`
         );
 
         return;
@@ -1467,7 +1668,7 @@ You can also use:
 `Please enter a team name.
 
 Example:
-@_shrek $schedule Gus N Em`
+@rsklbot $schedule Gus N Em`
         );
 
         return;
@@ -1521,7 +1722,6 @@ ${lines.join("\n")}`
       return;
     }
   }
-
   const teamSearchText = [
     command.replace(/^\$/, ""),
     argumentsText,
