@@ -4,15 +4,15 @@
   "description": "FrelickBot - console bot foundation (TypeScript, no web framework)",
   "main": "dist/index.js",
   "private": true,
- "scripts": {
-  "dev": "tsx src/index.ts",
-  "build": "tsc",
-  "start": "node dist/index.js",
-  "gotd": "tsx src/jobs/gotd.ts",
-  "lineup-announcement": "tsx src/jobs/lineupAnnouncement.ts",
-  "final-scores": "tsx src/jobs/FinalScoreRecaps.ts",
-   "daily-score-rankings": "tsx src/jobs/DailyScoreRankings.ts"
-  "listener": "tsx src/listener.ts"
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "gotd": "tsx src/jobs/gotd.ts",
+    "lineup-announcement": "tsx src/jobs/lineupAnnouncement.ts",
+    "final-scores": "tsx src/jobs/FinalScoreRecaps.ts",
+    "daily-score-rankings": "tsx src/jobs/DailyScoreRankings.ts",
+    "listener": "tsx src/listener.ts"
   },
   "keywords": [],
   "author": "",
