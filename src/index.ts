@@ -1,12 +1,15 @@
 import "dotenv/config";
+
 import { RealClient } from "./core/RealClient";
-import { handleActivity } from "./CommandHandler";
+import { handleActivity } from "./handlers/ActivityHandler";
 import { startDailyLineupAnnouncement } from "./jobs/lineupAnnouncement";
 
 async function main() {
   const client = new RealClient();
 
   client.loadSession();
+
+  // Start the nightly 9:00 PM ET lineup announcement scheduler
   startDailyLineupAnnouncement(client);
 
   console.log("==========================");
@@ -15,7 +18,6 @@ async function main() {
 
   const seen = new Set<string>();
 
-  // Ignore existing activities when the bot starts
   try {
     const initial = await client.getActivity();
 
@@ -30,11 +32,7 @@ async function main() {
 
   while (true) {
     try {
-      console.log("Checking activity...");
-
       const data = await client.getActivity();
-
-      console.log(`Activities: ${data.activities?.length ?? 0}`);
 
       for (const activity of data.activities ?? []) {
         if (seen.has(activity.id)) continue;
@@ -47,7 +45,7 @@ async function main() {
       console.error(err);
     }
 
-    await new Promise((r) => setTimeout(r, 2000));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
   }
 }
 
