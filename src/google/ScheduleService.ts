@@ -9,28 +9,12 @@ export interface ScheduledGame {
   status: string;
 }
 
-export async function getSchedule(): Promise<
-  ScheduledGame[]
-> {
-  const spreadsheetId =
-    process.env.SCORES_SPREADSHEET_ID;
-
-  if (!spreadsheetId) {
-    throw new Error(
-      "SCORES_SPREADSHEET_ID is missing"
-    );
-  }
-
-  const rows = await readSheet(
-    spreadsheetId,
-    "Schedule!A:F"
-  );
+export async function getSchedule(): Promise<ScheduledGame[]> {
+  const rows = await readSheet("Schedule!A:F");
 
   return rows
     .slice(1)
-    .filter(
-      (row) => row[0] && row[1] && row[2]
-    )
+    .filter((row) => row[0] && row[1] && row[2])
     .map((row) => ({
       date: row[0] ?? "",
       away: row[1] ?? "",
@@ -39,4 +23,12 @@ export async function getSchedule(): Promise<
       homeScore: row[4] ?? "",
       status: row[5] ?? "",
     }));
+}
+
+export async function getScheduleForDate(
+  date: string
+): Promise<ScheduledGame[]> {
+  const games = await getSchedule();
+
+  return games.filter((game) => game.date === date);
 }
