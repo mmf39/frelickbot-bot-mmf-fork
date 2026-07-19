@@ -39,7 +39,7 @@ const DIVISIONS: Record<string, string[]> = {
 function normalizeTeamName(value: string): string {
   return value
     .toLowerCase()
-    .replace(/^@_shrek\s*/i, "")
+    .replace(/^@rsklbot\s*/i, "")
     .replace(/[^a-z0-9]/g, "");
 }
 
