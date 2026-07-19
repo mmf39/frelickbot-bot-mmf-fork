@@ -26,34 +26,53 @@ export interface CompletedGame {
   home: CompletedTeam;
 }
 
-const SPREADSHEET_ID =
-  process.env.GOOGLE_SHEET_ID ||
-  "1EEFztFGUNtQqhHkftJHma3WHILDjZjv2WGErHEIuCbg";
-
-const COMPLETED_GAMES_SHEET = "Completed Games";
-const STANDINGS_SHEET = "Standings";
-
 interface StandingInfo {
   wins: number;
   losses: number;
 }
 
-function getGoogleAuth() {
-  const clientEmail = process.env.GOOGLE_CLIENT_EMAIL;
-  const privateKey = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, "\n");
+const COMPLETED_GAMES_SHEET = "Completed Games";
+const STANDINGS_SHEET = "Standings";
 
-  if (!clientEmail) {
-    throw new Error("Missing GOOGLE_CLIENT_EMAIL environment variable.");
+const SPREADSHEET_ID =
+  process.env.GOOGLE_SPREADSHEET_ID ||
+  process.env.LEAGUE_SPREADSHEET_ID ||
+  "1EEFztFGUNtQqhHkftJHma3WHILDjZjv2WGErHEIuCbg";
+
+function getGoogleAuth() {
+  const rawServiceAccount = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+
+  if (!rawServiceAccount) {
+    throw new Error(
+      "Missing GOOGLE_SERVICE_ACCOUNT_JSON environment variable."
+    );
   }
 
-  if (!privateKey) {
-    throw new Error("Missing GOOGLE_PRIVATE_KEY environment variable.");
+  let credentials: {
+    client_email?: string;
+    private_key?: string;
+  };
+
+  try {
+    credentials = JSON.parse(rawServiceAccount);
+  } catch {
+    throw new Error(
+      "GOOGLE_SERVICE_ACCOUNT_JSON is not valid JSON."
+    );
+  }
+
+  if (!credentials.client_email || !credentials.private_key) {
+    throw new Error(
+      "GOOGLE_SERVICE_ACCOUNT_JSON must contain client_email and private_key."
+    );
   }
 
   return new google.auth.JWT({
-    email: clientEmail,
-    key: privateKey,
-    scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
+    email: credentials.client_email,
+    key: credentials.private_key.replace(/\\n/g, "\n"),
+    scopes: [
+      "https://www.googleapis.com/auth/spreadsheets.readonly",
+    ],
   });
 }
 
