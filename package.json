@@ -5,12 +5,13 @@
   "main": "dist/index.js",
   "private": true,
   "scripts": {
-  "dev": "tsx src/index.ts",
-  "build": "tsc",
-  "start": "node dist/index.js",
-  "gotd": "tsx src/jobs/gotd.ts",
-  "listener": "tsx src/listener.ts"
-},
+    "dev": "tsx src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "gotd": "tsx src/jobs/gotd.ts",
+    "final-scores": "tsx src/jobs/FinalScoreRecaps.ts",
+    "listener": "tsx src/listener.ts"
+  },
   "keywords": [],
   "author": "",
   "license": "MIT",
