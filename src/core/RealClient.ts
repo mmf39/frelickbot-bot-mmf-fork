@@ -132,6 +132,74 @@ export class RealClient {
     );
   }
 
+  async sendChannelMessage(
+    text: string,
+    channelId?: string | number
+  ): Promise<any> {
+    if (!this.session) {
+      throw new Error(
+        "No session has been loaded"
+      );
+    }
+
+    const resolvedChannelId = String(
+      channelId ??
+      process.env.TRANSACTION_DM_CHANNEL_ID ??
+      ""
+    ).trim();
+
+    if (!resolvedChannelId) {
+      throw new Error(
+        "TRANSACTION_DM_CHANNEL_ID is missing."
+      );
+    }
+
+    const message = String(
+      text || ""
+    ).trim();
+
+    if (!message) {
+      throw new Error(
+        "Cannot send an empty channel message."
+      );
+    }
+
+    const response = await http.post(
+      `/messages/channels/${resolvedChannelId}/messages`,
+      {
+        content: {
+          nodes: [
+            {
+              type: "Paragraph",
+              children: [
+                {
+                  text: message,
+                  type: "Text",
+                },
+              ],
+            },
+          ],
+        },
+      },
+      {
+        headers: {
+          "real-auth-info":
+            this.session.authInfo,
+          "real-device-uuid":
+            this.session.deviceUuid,
+          "real-request-token":
+            RequestToken.generate(),
+          origin:
+            "https://www.realapp.com",
+          referer:
+            "https://www.realapp.com/",
+        },
+      }
+    );
+
+    return response.data;
+  }
+
   async getActivity(): Promise<any> {
     if (!this.session) {
       throw new Error(
