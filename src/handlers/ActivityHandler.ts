@@ -1,4 +1,5 @@
 import { handleCommand } from "../CommandHandler";
+import { handleFreeAgencyReply } from "./FreeAgencyHandler";
 
 export async function handleActivity(
   client: any,
@@ -29,5 +30,18 @@ export async function handleActivity(
     return;
   }
 
+  // Handle Free Agency replies first
+  if (activity.type === "reply") {
+    const handled = await handleFreeAgencyReply(
+      client,
+      activity
+    );
+
+    if (handled) {
+      return;
+    }
+  }
+
+  // Continue with normal command handling
   await handleCommand(client, activity);
 }
