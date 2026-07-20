@@ -64,6 +64,7 @@ export class RealClient {
 
   async postToGroup(
     text: string,
+    groupId?: string | number,
     parentCommentId: string | null = null
   ): Promise<any> {
     if (!this.session) {
@@ -72,7 +73,8 @@ export class RealClient {
       );
     }
 
-    const groupId = Number(
+    const resolvedGroupId = Number(
+      groupId ??
       process.env.REAL_GROUP_ID
     );
 
@@ -80,11 +82,11 @@ export class RealClient {
       process.env.REAL_TURNSTILE_TOKEN;
 
     if (
-      !Number.isInteger(groupId) ||
-      groupId <= 0
+      !Number.isInteger(resolvedGroupId) ||
+      resolvedGroupId <= 0
     ) {
       throw new Error(
-        "REAL_GROUP_ID is missing or invalid"
+        "Group ID is missing or invalid"
       );
     }
 
@@ -95,9 +97,9 @@ export class RealClient {
     }
 
     const response = await http.post(
-      `/comments/groups/${groupId}`,
+      `/comments/groups/${resolvedGroupId}`,
       {
-        groupId,
+        groupId: resolvedGroupId,
         text,
         parentCommentId,
       },
@@ -124,10 +126,12 @@ export class RealClient {
 
   async replyToComment(
     parentCommentId: string,
-    text: string
+    text: string,
+    groupId?: string | number
   ): Promise<any> {
     return this.postToGroup(
       text,
+      groupId,
       parentCommentId
     );
   }
@@ -188,6 +192,7 @@ export class RealClient {
 
     return response.data;
   }
+
   async getChannelMessages(
     channelId?: string | number
   ): Promise<any> {
@@ -229,6 +234,7 @@ export class RealClient {
 
     return response.data;
   }
+
   async getActivity(): Promise<any> {
     if (!this.session) {
       throw new Error(
