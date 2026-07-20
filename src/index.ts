@@ -5,6 +5,7 @@ import { handleActivity } from "./handlers/ActivityHandler";
 
 const TRANSACTION_CHANNEL_ID = "2205570";
 const COMMISSIONER_USER_ID = "Y3KdBmLn";
+const TRANSACTION_GROUP_ID = "30139";
 
 function extractMessageText(value: any): string {
   if (value === null || value === undefined) {
@@ -320,8 +321,9 @@ async function main() {
           ].join("\n");
 
           await client.postToGroup(
-            groupPost
-          );
+  groupPost,
+  TRANSACTION_GROUP_ID
+);
 
           console.log(
             `✅ Posted approved transaction ${approved.transactionId}`
