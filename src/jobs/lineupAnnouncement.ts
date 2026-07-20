@@ -32,6 +32,140 @@ interface AppsScriptResponse {
   message?: string;
 }
 
+
+/*
+ * Replace each example value below with the actual Real username
+ * of the GM for that team.
+ *
+ * Keep the @ at the beginning of every username.
+ */
+const TEAM_GMS: Record<string, string> = {
+  turkeys: "@corbin",
+  gusnem: "@bostonsportsfan11",
+  thephantoms: "@maliknabers.1",
+  illegals: "@cjstroud777",
+  pandas: "@dbook",
+  superkings: "@sirelmodoggy",
+  dreamteam: "@germie",
+  badbois: "@imgoingd1",
+  scorpions: "@yup_",
+  storm: "@creeperpotato",
+};
+
+function normalizeTeamName(
+  team: string
+): string {
+  return team
+    .toLowerCase()
+    .replace(
+      /[^a-z0-9]/g,
+      ""
+    );
+}
+
+function getTeamGM(
+  team: string
+): string | null {
+  const normalized =
+    normalizeTeamName(team);
+
+  const gm =
+    TEAM_GMS[normalized];
+
+  if (!gm) {
+    console.warn(
+      `No GM username is configured for team: ${team}`
+    );
+
+    return null;
+  }
+
+  return gm.startsWith("@")
+    ? gm
+    : `@${gm}`;
+}
+
+function getPlayingGMs(
+  leagueGames: Array<{
+    away: string;
+    home: string;
+  }>
+): string[] {
+  const mentions =
+    leagueGames.flatMap(
+      (game) => [
+        getTeamGM(game.away),
+        getTeamGM(game.home),
+      ]
+    );
+
+  return Array.from(
+    new Set(
+      mentions.filter(
+        (mention): mention is string =>
+          Boolean(mention)
+      )
+    )
+  );
+}
+
+function extractPostedCommentId(
+  value: unknown
+): string | null {
+  if (
+    typeof value !== "object" ||
+    value === null
+  ) {
+    return null;
+  }
+
+  const record =
+    value as Record<string, unknown>;
+
+  const possibleIds = [
+    record.commentId,
+    record.commentID,
+    record.id,
+  ];
+
+  for (const possibleId of possibleIds) {
+    if (
+      typeof possibleId === "string" &&
+      possibleId.trim()
+    ) {
+      return possibleId;
+    }
+
+    if (
+      typeof possibleId === "number" &&
+      Number.isFinite(possibleId)
+    ) {
+      return String(possibleId);
+    }
+  }
+
+  const nestedValues = [
+    record.comment,
+    record.data,
+    record.result,
+    record.content,
+    record.response,
+  ];
+
+  for (const nestedValue of nestedValues) {
+    const nestedId =
+      extractPostedCommentId(
+        nestedValue
+      );
+
+    if (nestedId) {
+      return nestedId;
+    }
+  }
+
+  return null;
+}
+
 function getTomorrowEastern(): {
   isoDate: string;
   sheetDate: string;
@@ -532,12 +666,8 @@ async function saveLineupLockTime(
 function getTeamEmoji(
   team: string
 ): string {
-  const normalized = team
-    .toLowerCase()
-    .replace(
-      /[^a-z0-9]/g,
-      ""
-    );
+  const normalized =
+    normalizeTeamName(team);
 
   const emojis:
     Record<string, string> = {
@@ -642,9 +772,57 @@ export async function postTomorrowGames(
 
   console.log(message);
 
-  await client.postToGroup(
-    message
+  const postedComment =
+    await client.postToGroup(
+      message
+    );
+
+  console.log(
+    "Schedule post response:",
+    postedComment
   );
+
+  const parentCommentId =
+    extractPostedCommentId(
+      postedComment
+    );
+
+  if (!parentCommentId) {
+    throw new Error(
+      "The schedule was posted, but its comment ID could not be found. " +
+      "Check the logged schedule post response."
+    );
+  }
+
+  const playingGMs =
+    getPlayingGMs(
+      leagueGames
+    );
+
+  if (playingGMs.length > 0) {
+    const gmReply =
+      `GMs playing ${tomorrow.displayDate}:\n\n` +
+      playingGMs.join(" ");
+
+    console.log(
+      "Posting GM reply:"
+    );
+
+    console.log(gmReply);
+
+    await client.replyToComment(
+      parentCommentId,
+      gmReply
+    );
+
+    console.log(
+      `Replied with ${playingGMs.length} GM mention(s).`
+    );
+  } else {
+    console.warn(
+      "No GM usernames were found for the teams playing tomorrow."
+    );
+  }
 
   console.log(
     `Posted tomorrow's games for ${tomorrow.isoDate}.`
