@@ -6,9 +6,25 @@ const CAP_LIMIT = 5000;
 
 const LINEUP_ADMIN_USER_IDS = ["Y3KdBmLn"];
 
+function findTeamByUserId_(userId) {
+  const gmUserIds = {
+    "4JZo9wZv": "Turkeys",
+    "R3XDLZz3": "Turkeys",
+    "rner1dZJ": "Gus N Em",
+    "5nxBPRyv": "The Phantoms",
+    "5nxPZYQn": "Illegals",
+    "jvbN8dbv": "The Pandas",
+    "7JkKrbKJ": "Super Kings",
+    "dvd60P4n": "Dream Team",
+    "xnr4NGkv": "Bad Bois",
+    "eJ9dx9bn": "Scorpions",
+    "mvg4OPG3": "Storm"
+  };
+
+  return gmUserIds[clean_(userId)] || "";
+}
 const TEAM_LINEUP_SUBMITTER_USER_IDS: Record<string, string[]> = {
-  turkeys: ["4JZo9wZv"],
-  turkeys: ["R3XDLZz3"],
+  turkeys: ["4JZo9wZv","R3XDLZz3"],
   gusnem: ["rner1dZJ"],
   thephantoms: ["5nxBPRyv"],
   illegals: ["5nxPZYQn"],
