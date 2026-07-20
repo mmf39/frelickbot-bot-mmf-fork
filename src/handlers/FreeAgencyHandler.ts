@@ -160,36 +160,75 @@ export async function handleFreeAgencyReply(
     return true;
   }
 
-  const response = await fetch(apiUrl, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
+  try {
+    const payload = {
       action: "addFreeAgent",
       username,
       userId,
       replyText,
       replyId,
       parentCommentId,
-    }),
-  });
+    };
 
-  const responseText = await response.text();
+    console.log("Sending free agent to sheet:", payload);
+    console.log("Free Agency API URL:", apiUrl);
 
-  if (!response.ok) {
+    const response = await fetch(apiUrl, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const responseText = await response.text();
+
+    console.log("Free Agency API status:", response.status);
+    console.log("Free Agency API response:", responseText);
+
+    if (!response.ok) {
+      console.error(
+        `Free Agency sheet request failed (${response.status}):`,
+        responseText
+      );
+
+      return true;
+    }
+
+    let result: any;
+
+    try {
+      result = JSON.parse(responseText);
+    } catch {
+      console.error(
+        "Apps Script did not return valid JSON:",
+        responseText
+      );
+
+      return true;
+    }
+
+    if (!result.ok) {
+      console.error(
+        "Apps Script rejected the free agent:",
+        result
+      );
+
+      return true;
+    }
+
+    console.log(
+      `Free agent added successfully: ${username || userId}`,
+      result
+    );
+
+    return true;
+  } catch (error) {
     console.error(
-      `Free Agency sheet request failed (${response.status}):`,
-      responseText
+      "Could not send free agent to Google Sheets:",
+      error
     );
 
     return true;
   }
-
-  console.log(
-    `Free agent processed: ${username || userId}`,
-    responseText
-  );
-
-  return true;
 }
