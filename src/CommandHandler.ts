@@ -633,16 +633,136 @@ function parseLineupCommand(
 }
 
 
-type TransactionType = "sign"|"cut"|"trade"|"namechange";
-type ParsedTransaction={type:TransactionType;details:string;};
-function parseTransactionCommand(argumentsText:string):ParsedTransaction|null{
- const cleaned=String(argumentsText||"").trim();
- const match=cleaned.match(/^(sign|signing|cut|trade|namechange|name-change|name change)\s+(.+)$/i);
- if(!match)return null;
- const raw=match[1].toLowerCase().replace(/[\s-]+/g,"");
- const map:any={sign:"sign",signing:"sign",cut:"cut",trade:"trade",namechange:"namechange"};
- const type=map[raw]; if(!type) return null;
- return {type,details:match[2].trim()};
+type TransactionType = "sign" | "cut" | "trade" | "namechange";
+
+type ParsedTransaction = {
+  type: TransactionType;
+  team: string | null;
+  secondTeam: string | null;
+  details: string;
+};
+
+function getAllTeamNames(): string[] {
+  return Object.values(TEAM_DISPLAY_NAMES);
+}
+
+function parseTeamAtStart(
+  text: string
+): {
+  team: string;
+  remaining: string;
+} | null {
+  const teams = getAllTeamNames()
+    .sort((a, b) => b.length - a.length);
+
+  const trimmed = text.trim();
+
+  for (const team of teams) {
+    if (
+      trimmed.toLowerCase() === team.toLowerCase() ||
+      trimmed.toLowerCase().startsWith(
+        `${team.toLowerCase()} `
+      )
+    ) {
+      return {
+        team,
+        remaining: trimmed.slice(team.length).trim(),
+      };
+    }
+  }
+
+  return null;
+}
+
+function parseTransactionCommand(
+  argumentsText: string
+): ParsedTransaction | null {
+  const cleaned = String(argumentsText || "").trim();
+
+  const match = cleaned.match(
+    /^(sign|signing|cut|trade|namechange|name-change|name change)\s+(.+)$/i
+  );
+
+  if (!match) {
+    return null;
+  }
+
+  const rawType = match[1]
+    .toLowerCase()
+    .replace(/[\s-]+/g, "");
+
+  const typeMap: Record<string, TransactionType> = {
+    sign: "sign",
+    signing: "sign",
+    cut: "cut",
+    trade: "trade",
+    namechange: "namechange",
+  };
+
+  const type = typeMap[rawType];
+
+  if (!type) {
+    return null;
+  }
+
+  const remainder = match[2].trim();
+
+  if (type === "trade") {
+    const sections = remainder
+      .split("|")
+      .map((section) => section.trim())
+      .filter(Boolean);
+
+    if (sections.length < 3) {
+      return null;
+    }
+
+    const firstTeam = findMatchingTeam(
+      sections[0],
+      getAllTeamNames()
+    );
+
+    const secondTeam = findMatchingTeam(
+      sections[1],
+      getAllTeamNames()
+    );
+
+    if (
+      !firstTeam ||
+      !secondTeam ||
+      normalizeTeamName(firstTeam) ===
+        normalizeTeamName(secondTeam)
+    ) {
+      return null;
+    }
+
+    const assets = sections.slice(2).join(" | ").trim();
+
+    if (!assets) {
+      return null;
+    }
+
+    return {
+      type,
+      team: firstTeam,
+      secondTeam,
+      details:
+        `${firstTeam} and ${secondTeam} trade | ${assets}`,
+    };
+  }
+
+  const teamResult = parseTeamAtStart(remainder);
+
+  if (!teamResult || !teamResult.remaining) {
+    return null;
+  }
+
+  return {
+    type,
+    team: teamResult.team,
+    secondTeam: null,
+    details: teamResult.remaining,
+  };
 }
 function formatTransactionType(type:TransactionType){return ({sign:"Signing",cut:"Cut",trade:"Trade",namechange:"Player Name Change"} as any)[type];}
 async function callTransactionApi(body:Record<string,unknown>):Promise<any>{
@@ -1340,10 +1460,13 @@ ${resolvedPlayers
           activity.commentId,
 `Use one of these formats:
 
-@rsklbot $transaction sign @Player
-@rsklbot $transaction cut @Player
-@rsklbot $transaction namechange @OldName @NewName
-@rsklbot $transaction trade Team | give: assets | receive: assets`
+@rsklbot $transaction sign Team Player
+@rsklbot $transaction cut Team Player
+@rsklbot $transaction namechange Team OldName NewName
+
+Trade format:
+
+@rsklbot $transaction trade Team One | Team Two | Team One give: assets | Team Two give: assets`
         );
 
         return;
@@ -1360,28 +1483,87 @@ ${resolvedPlayers
         return;
       }
 
-      const submittingTeam =
-        getTransactionTeamForUserId(submittingUserId);
+      const isCommissioner =
+  LINEUP_ADMIN_USER_IDS.includes(submittingUserId);
 
-      if (!submittingTeam) {
-        await client.replyToComment(
-          activity.commentId,
-          "Sorry, you are not authorized to submit a transaction."
-        );
+const assignedTeam =
+  getTransactionTeamForUserId(submittingUserId);
 
-        return;
-      }
+if (!isCommissioner && !assignedTeam) {
+  await client.replyToComment(
+    activity.commentId,
+    "Sorry, you are not authorized to submit a transaction."
+  );
+
+  return;
+}
+
+let submittingTeam: string;
+
+if (isCommissioner) {
+  if (!parsed.team) {
+    await client.replyToComment(
+      activity.commentId,
+`Please include the team.
+
+Examples:
+
+@rsklbot $transaction cut Turkeys @Player
+@rsklbot $transaction sign Storm @Player
+
+Trade format:
+
+@rsklbot $transaction trade Turkeys | Gus N Em | Turkeys give: @Player | Gus N Em give: @Player2`
+    );
+
+    return;
+  }
+
+  submittingTeam = parsed.team;
+} else {
+  submittingTeam = assignedTeam!;
+
+  if (
+    parsed.team &&
+    normalizeTeamName(parsed.team) !==
+      normalizeTeamName(submittingTeam)
+  ) {
+    await client.replyToComment(
+      activity.commentId,
+      `You can only submit transactions for ${submittingTeam}.`
+    );
+
+    return;
+  }
+
+  if (
+    parsed.type === "trade" &&
+    parsed.secondTeam &&
+    normalizeTeamName(parsed.secondTeam) ===
+      normalizeTeamName(submittingTeam)
+  ) {
+    await client.replyToComment(
+      activity.commentId,
+      "A trade must include two different teams."
+    );
+
+    return;
+  }
+}
 
       try {
         const result = await callTransactionApi({
-          action: "submitTransaction",
-          submittedByUserId: submittingUserId,
-          team: submittingTeam,
-          transactionType: parsed.type,
-          details: parsed.details,
-          source: "Real Bot",
-          submittedAt: new Date().toISOString(),
-        });
+  action: "submitTransaction",
+  submittedByUserId: submittingUserId,
+  team: submittingTeam,
+  secondTeam: parsed.secondTeam,
+  transactionType: parsed.type,
+  details: parsed.details,
+  source: isCommissioner
+    ? "Real Bot - Commissioner"
+    : "Real Bot",
+  submittedAt: new Date().toISOString(),
+});
 
         const transactionId = String(
           result.transactionId ?? result.id ?? "Pending"
