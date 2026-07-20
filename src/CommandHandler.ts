@@ -1067,23 +1067,27 @@ $[team] - Show a team's information`
 
   return;
 }
-      case "mensah": {
+    case "$mensah": {
   const roasts = [
     "@mensah still thinks rebuilding means collecting every 5th round pick.",
-    "@mensah is not cool.",
+    "@mensah has more transaction ideas than wins.",
     "@mensah somehow loses trades he offered himself.",
     "@mensah's scouting department is just the Trending page.",
     "@mensah treats draft picks like trading cards.",
     "@mensah's salary cap cries every time he logs in.",
     "@mensah's best player is Future Considerations.",
-    "@mensah's championship window is scheduled for 2037."
+    "@mensah's championship window is scheduled for 2037.",
+    "@mensah's rebuild has been rebuilding for three seasons.",
+    "@mensah sends trade offers like they're spam emails.",
+    "@mensah thinks cap space scores points.",
+    "@mensah is allergic to fair trades."
   ];
 
   const roast =
     roasts[Math.floor(Math.random() * roasts.length)];
 
-  await this.client.replyToComment(
-    comment.id,
+  await client.replyToComment(
+    activity.commentId,
     roast
   );
 
