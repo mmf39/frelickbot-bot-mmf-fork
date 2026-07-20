@@ -1,25 +1,32 @@
-function getReplyAuthorUserId(activity: any): string {
-  return String(
-    activity.additionalInfo?.comment?.authorUserId ??
-    activity.additionalInfo?.comment?.commenterUserId ??
-    activity.additionalInfo?.comment?.createdByUserId ??
-    activity.additionalInfo?.comment?.userId ??
-    activity.additionalInfo?.comment?.author?.id ??
-    activity.additionalInfo?.comment?.user?.id ??
-    activity.comment?.authorUserId ??
-    activity.comment?.commenterUserId ??
-    activity.comment?.createdByUserId ??
-    activity.comment?.userId ??
-    activity.comment?.author?.id ??
-    activity.comment?.user?.id ??
-    activity.authorUserId ??
-    activity.commenterUserId ??
-    activity.createdByUserId ??
-    activity.createdBy?.id ??
-    activity.author?.id ??
-    activity.actor?.id ??
-    ""
-  ).trim();
+function getReplyAuthorUsername(activity: any): string {
+  const rawUsername =
+    activity.additionalInfo?.comment?.createdBy?.username ??
+    activity.additionalInfo?.comment?.createdByUser?.username ??
+    activity.additionalInfo?.comment?.author?.username ??
+    activity.additionalInfo?.comment?.user?.username ??
+    activity.additionalInfo?.comment?.username ??
+    activity.additionalInfo?.user?.username ??
+    activity.additionalInfo?.createdBy?.username ??
+    activity.additionalInfo?.author?.username ??
+    activity.comment?.createdBy?.username ??
+    activity.comment?.createdByUser?.username ??
+    activity.comment?.author?.username ??
+    activity.comment?.user?.username ??
+    activity.comment?.username ??
+    activity.createdBy?.username ??
+    activity.createdByUser?.username ??
+    activity.author?.username ??
+    activity.actor?.username ??
+    activity.user?.username ??
+    activity.username ??
+    activity.authorUsername ??
+    "";
+
+  const username = String(rawUsername)
+    .trim()
+    .replace(/^@+/, "");
+
+  return username ? `@${username}` : "";
 }
 
 function getReplyAuthorUsername(activity: any): string {
@@ -150,7 +157,13 @@ export async function handleFreeAgencyReply(
 
     return true;
   }
+console.log(
+  "FREE AGENCY REPLY ACTIVITY:",
+  JSON.stringify(activity, null, 2)
+);
 
+console.log("Detected username:", username);
+console.log("Detected userId:", userId);
   const response = await fetch(apiUrl, {
     method: "POST",
     headers: {
