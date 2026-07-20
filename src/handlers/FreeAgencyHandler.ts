@@ -95,11 +95,27 @@ function getReplyId(activity: any): string {
 function getParentCommentId(activity: any): string {
   return String(
     activity.parentCommentId ??
+    activity.parentId ??
+    activity.replyToCommentId ??
+    activity.replyingToCommentId ??
+    activity.inReplyToCommentId ??
+    activity.additionalInfo?.parentCommentId ??
+    activity.additionalInfo?.parentId ??
+    activity.additionalInfo?.replyToCommentId ??
+    activity.additionalInfo?.replyingToCommentId ??
+    activity.additionalInfo?.inReplyToCommentId ??
     activity.additionalInfo?.comment?.parentCommentId ??
     activity.additionalInfo?.comment?.parentId ??
+    activity.additionalInfo?.comment?.replyToCommentId ??
+    activity.additionalInfo?.comment?.replyingToCommentId ??
+    activity.additionalInfo?.comment?.inReplyToCommentId ??
+    activity.additionalInfo?.comment?.parent?.id ??
     activity.comment?.parentCommentId ??
     activity.comment?.parentId ??
-    activity.additionalInfo?.parentCommentId ??
+    activity.comment?.replyToCommentId ??
+    activity.comment?.replyingToCommentId ??
+    activity.comment?.inReplyToCommentId ??
+    activity.comment?.parent?.id ??
     ""
   ).trim();
 }
@@ -108,13 +124,34 @@ export async function handleFreeAgencyReply(
   client: any,
   activity: any
 ): Promise<boolean> {
-  if (activity.type !== "reply") {
+  console.log(
+    "CHECKING FREE AGENCY ACTIVITY:",
+    JSON.stringify(activity, null, 2)
+  );
+
+  const activityType = String(activity.type ?? "").trim();
+
+  const allowedReplyTypes = [
+    "reply",
+    "commentReply",
+    "comment_reply",
+    "commentreply",
+  ];
+
+  const isReply = allowedReplyTypes.some(
+    (type) =>
+      type.toLowerCase() === activityType.toLowerCase()
+  );
+
+  if (!isReply) {
     return false;
   }
 
   const freeAgencyCommentId = String(
     process.env.FREE_AGENCY_COMMENT_ID ?? ""
-  ).trim();
+  )
+    .trim()
+    .replace(/^.*\//, "");
 
   if (!freeAgencyCommentId) {
     console.warn("FREE_AGENCY_COMMENT_ID is not set.");
@@ -123,7 +160,24 @@ export async function handleFreeAgencyReply(
 
   const parentCommentId = getParentCommentId(activity);
 
+  console.log(
+    "Configured FREE_AGENCY_COMMENT_ID:",
+    freeAgencyCommentId
+  );
+  console.log(
+    "Detected parent comment ID:",
+    parentCommentId
+  );
+
+  if (!parentCommentId) {
+    console.warn("No parent comment ID was found.");
+    return false;
+  }
+
   if (parentCommentId !== freeAgencyCommentId) {
+    console.log(
+      "Reply ignored because parent ID does not match."
+    );
     return false;
   }
 
@@ -141,22 +195,15 @@ export async function handleFreeAgencyReply(
   const replyText = getReplyText(activity);
   const replyId = getReplyId(activity);
 
-  console.log(
-    "FREE AGENCY REPLY ACTIVITY:",
-    JSON.stringify(activity, null, 2)
-  );
-
   console.log("Detected username:", username);
   console.log("Detected userId:", userId);
   console.log("Detected reply text:", replyText);
   console.log("Detected reply ID:", replyId);
-  console.log("Detected parent comment ID:", parentCommentId);
 
   if (!userId) {
     console.error(
       "Could not find the replying user's Real user ID."
     );
-
     return true;
   }
 
@@ -191,7 +238,6 @@ export async function handleFreeAgencyReply(
         `Free Agency sheet request failed (${response.status}):`,
         responseText
       );
-
       return true;
     }
 
@@ -204,7 +250,6 @@ export async function handleFreeAgencyReply(
         "Apps Script did not return valid JSON:",
         responseText
       );
-
       return true;
     }
 
@@ -213,7 +258,6 @@ export async function handleFreeAgencyReply(
         "Apps Script rejected the free agent:",
         result
       );
-
       return true;
     }
 
@@ -228,7 +272,6 @@ export async function handleFreeAgencyReply(
       "Could not send free agent to Google Sheets:",
       error
     );
-
     return true;
   }
 }
