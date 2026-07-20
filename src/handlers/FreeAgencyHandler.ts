@@ -1,3 +1,29 @@
+function getReplyAuthorUserId(activity: any): string {
+  return String(
+    activity.additionalInfo?.comment?.authorUserId ??
+    activity.additionalInfo?.comment?.commenterUserId ??
+    activity.additionalInfo?.comment?.createdByUserId ??
+    activity.additionalInfo?.comment?.userId ??
+    activity.additionalInfo?.comment?.author?.id ??
+    activity.additionalInfo?.comment?.user?.id ??
+    activity.comment?.authorUserId ??
+    activity.comment?.commenterUserId ??
+    activity.comment?.createdByUserId ??
+    activity.comment?.userId ??
+    activity.comment?.author?.id ??
+    activity.comment?.user?.id ??
+    activity.authorUserId ??
+    activity.commenterUserId ??
+    activity.createdByUserId ??
+    activity.createdBy?.id ??
+    activity.createdByUser?.id ??
+    activity.author?.id ??
+    activity.actor?.id ??
+    activity.user?.id ??
+    ""
+  ).trim();
+}
+
 function getReplyAuthorUsername(activity: any): string {
   const rawUsername =
     activity.additionalInfo?.comment?.createdBy?.username ??
@@ -5,14 +31,20 @@ function getReplyAuthorUsername(activity: any): string {
     activity.additionalInfo?.comment?.author?.username ??
     activity.additionalInfo?.comment?.user?.username ??
     activity.additionalInfo?.comment?.username ??
+    activity.additionalInfo?.comment?.authorUsername ??
+    activity.additionalInfo?.comment?.commenterUsername ??
     activity.additionalInfo?.user?.username ??
     activity.additionalInfo?.createdBy?.username ??
+    activity.additionalInfo?.createdByUser?.username ??
     activity.additionalInfo?.author?.username ??
+    activity.additionalInfo?.actor?.username ??
     activity.comment?.createdBy?.username ??
     activity.comment?.createdByUser?.username ??
     activity.comment?.author?.username ??
     activity.comment?.user?.username ??
     activity.comment?.username ??
+    activity.comment?.authorUsername ??
+    activity.comment?.commenterUsername ??
     activity.createdBy?.username ??
     activity.createdByUser?.username ??
     activity.author?.username ??
@@ -20,6 +52,7 @@ function getReplyAuthorUsername(activity: any): string {
     activity.user?.username ??
     activity.username ??
     activity.authorUsername ??
+    activity.commenterUsername ??
     "";
 
   const username = String(rawUsername)
@@ -29,40 +62,13 @@ function getReplyAuthorUsername(activity: any): string {
   return username ? `@${username}` : "";
 }
 
-function getReplyAuthorUsername(activity: any): string {
-  const username = String(
-    activity.additionalInfo?.comment?.username ??
-    activity.additionalInfo?.comment?.authorUsername ??
-    activity.additionalInfo?.comment?.commenterUsername ??
-    activity.additionalInfo?.comment?.author?.username ??
-    activity.additionalInfo?.comment?.user?.username ??
-    activity.comment?.username ??
-    activity.comment?.authorUsername ??
-    activity.comment?.commenterUsername ??
-    activity.comment?.author?.username ??
-    activity.comment?.user?.username ??
-    activity.username ??
-    activity.authorUsername ??
-    activity.createdBy?.username ??
-    activity.author?.username ??
-    activity.actor?.username ??
-    ""
-  ).trim();
-
-  if (!username) {
-    return "";
-  }
-
-  return username.startsWith("@")
-    ? username
-    : `@${username}`;
-}
-
 function getReplyText(activity: any): string {
   return String(
+    activity.additionalInfo?.comment?.plainText ??
     activity.additionalInfo?.comment?.content ??
     activity.additionalInfo?.comment?.text ??
     activity.additionalInfo?.comment?.body ??
+    activity.comment?.plainText ??
     activity.comment?.content ??
     activity.comment?.text ??
     activity.comment?.body ??
@@ -111,15 +117,11 @@ export async function handleFreeAgencyReply(
   ).trim();
 
   if (!freeAgencyCommentId) {
-    console.warn(
-      "FREE_AGENCY_COMMENT_ID is not set."
-    );
-
+    console.warn("FREE_AGENCY_COMMENT_ID is not set.");
     return false;
   }
 
-  const parentCommentId =
-    getParentCommentId(activity);
+  const parentCommentId = getParentCommentId(activity);
 
   if (parentCommentId !== freeAgencyCommentId) {
     return false;
@@ -130,40 +132,34 @@ export async function handleFreeAgencyReply(
   ).trim();
 
   if (!apiUrl) {
-    console.error(
-      "FREE_AGENCY_API_URL is not set."
-    );
-
+    console.error("FREE_AGENCY_API_URL is not set.");
     return true;
   }
 
-  const userId =
-    getReplyAuthorUserId(activity);
+  const userId = getReplyAuthorUserId(activity);
+  const username = getReplyAuthorUsername(activity);
+  const replyText = getReplyText(activity);
+  const replyId = getReplyId(activity);
 
-  const username =
-    getReplyAuthorUsername(activity);
+  console.log(
+    "FREE AGENCY REPLY ACTIVITY:",
+    JSON.stringify(activity, null, 2)
+  );
 
-  const replyText =
-    getReplyText(activity);
-
-  const replyId =
-    getReplyId(activity);
+  console.log("Detected username:", username);
+  console.log("Detected userId:", userId);
+  console.log("Detected reply text:", replyText);
+  console.log("Detected reply ID:", replyId);
+  console.log("Detected parent comment ID:", parentCommentId);
 
   if (!userId) {
     console.error(
-      "Could not find the replying user's Real user ID:",
-      JSON.stringify(activity)
+      "Could not find the replying user's Real user ID."
     );
 
     return true;
   }
-console.log(
-  "FREE AGENCY REPLY ACTIVITY:",
-  JSON.stringify(activity, null, 2)
-);
 
-console.log("Detected username:", username);
-console.log("Detected userId:", userId);
   const response = await fetch(apiUrl, {
     method: "POST",
     headers: {
@@ -179,8 +175,7 @@ console.log("Detected userId:", userId);
     }),
   });
 
-  const responseText =
-    await response.text();
+  const responseText = await response.text();
 
   if (!response.ok) {
     console.error(
