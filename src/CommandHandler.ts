@@ -6,23 +6,6 @@ const CAP_LIMIT = 5000;
 
 const LINEUP_ADMIN_USER_IDS = ["Y3KdBmLn"];
 
-function findTeamByUserId_(userId) {
-  const gmUserIds = {
-    "4JZo9wZv": "Turkeys",
-    "R3XDLZz3": "Turkeys",
-    "rner1dZJ": "Gus N Em",
-    "5nxBPRyv": "The Phantoms",
-    "5nxPZYQn": "Illegals",
-    "jvbN8dbv": "The Pandas",
-    "7JkKrbKJ": "Super Kings",
-    "dvd60P4n": "Dream Team",
-    "xnr4NGkv": "Bad Bois",
-    "eJ9dx9bn": "Scorpions",
-    "mvg4OPG3": "Storm"
-  };
-
-  return gmUserIds[clean_(userId)] || "";
-}
 const TEAM_LINEUP_SUBMITTER_USER_IDS: Record<string, string[]> = {
   turkeys: ["4JZo9wZv","R3XDLZz3"],
   gusnem: ["rner1dZJ"],
@@ -35,6 +18,31 @@ const TEAM_LINEUP_SUBMITTER_USER_IDS: Record<string, string[]> = {
   scorpions: ["eJ9dx9bn"],
   storm: ["mvg4OPG3"],
 };
+
+const TEAM_DISPLAY_NAMES: Record<string, string> = {
+  turkeys: "Turkeys",
+  gusnem: "Gus N Em",
+  thephantoms: "The Phantoms",
+  illegals: "Illegals",
+  pandas: "The Pandas",
+  superkings: "Super Kings",
+  dreamteam: "Dream Team",
+  badbois: "Bad Bois",
+  scorpions: "Scorpions",
+  storm: "Storm",
+};
+
+function getTransactionTeamForUserId(userId: string): string | null {
+  for (const [teamKey, allowedUserIds] of Object.entries(
+    TEAM_LINEUP_SUBMITTER_USER_IDS
+  )) {
+    if (allowedUserIds.includes(userId)) {
+      return TEAM_DISPLAY_NAMES[teamKey] ?? teamKey;
+    }
+  }
+
+  return null;
+}
 
 const DIVISIONS: Record<string, string[]> = {
   north: [
@@ -1325,37 +1333,118 @@ ${resolvedPlayers
     }
 
     case "$transaction": {
-  const parsed=parseTransactionCommand(argumentsText);
-  if(!parsed){await client.replyToComment(activity.commentId,`Use one of these formats:
+      const parsed = parseTransactionCommand(argumentsText);
+
+      if (!parsed) {
+        await client.replyToComment(
+          activity.commentId,
+`Use one of these formats:
 
 @rsklbot $transaction sign @Player
 @rsklbot $transaction cut @Player
 @rsklbot $transaction namechange @OldName @NewName
-@rsklbot $transaction trade Team | give: assets | receive: assets`); return;}
-  const submittingUserId=getSubmittingUserId(activity);
-  if(!submittingUserId){await client.replyToComment(activity.commentId,"I could not identify who submitted this transaction."); return;}
-  try{
-    const result=await callTransactionApi({action:"submitTransaction",submittedByUserId:submittingUserId,transactionType:parsed.type,details:parsed.details,source:"Real Bot",submittedAt:new Date().toISOString()});
-    const transactionId=String(result.transactionId??result.id??"Pending");
-    const team=String(result.team??result.gmTeam??"Unknown Team");
-    const typeName=formatTransactionType(parsed.type);
-    const dmMessage=["📋 New RSKL Transaction Request","","ID: "+transactionId,`Type: ${typeName}`,`Team: ${team}`,`Submitted By User ID: ${submittingUserId}`,"",`Details: ${parsed.details}`,"","Status: Pending Commissioner Approval"].join("\n");
-    await client.sendChannelMessage(
-  process.env.TRANSACTION_DM_CHANNEL_ID!,
-  dmMessage
-);
-    await client.replyToComment(activity.commentId,`✅ Transaction Submitted
+@rsklbot $transaction trade Team | give: assets | receive: assets`
+        );
+
+        return;
+      }
+
+      const submittingUserId = getSubmittingUserId(activity);
+
+      if (!submittingUserId) {
+        await client.replyToComment(
+          activity.commentId,
+          "I could not identify who submitted this transaction."
+        );
+
+        return;
+      }
+
+      const submittingTeam =
+        getTransactionTeamForUserId(submittingUserId);
+
+      if (!submittingTeam) {
+        await client.replyToComment(
+          activity.commentId,
+          "Sorry, you are not authorized to submit a transaction."
+        );
+
+        return;
+      }
+
+      try {
+        const result = await callTransactionApi({
+          action: "submitTransaction",
+          submittedByUserId: submittingUserId,
+          team: submittingTeam,
+          transactionType: parsed.type,
+          details: parsed.details,
+          source: "Real Bot",
+          submittedAt: new Date().toISOString(),
+        });
+
+        const transactionId = String(
+          result.transactionId ?? result.id ?? "Pending"
+        );
+
+        const team = String(
+          result.team ?? result.gmTeam ?? submittingTeam
+        );
+
+        const typeName = formatTransactionType(parsed.type);
+
+        const dmMessage = [
+          "📋 New RSKL Transaction Request",
+          "",
+          `ID: ${transactionId}`,
+          `Type: ${typeName}`,
+          `Team: ${team}`,
+          `Submitted By User ID: ${submittingUserId}`,
+          "",
+          `Details: ${parsed.details}`,
+          "",
+          "Status: Pending Commissioner Approval",
+        ].join("\n");
+
+        const transactionChannelId =
+          process.env.TRANSACTION_DM_CHANNEL_ID;
+
+        if (transactionChannelId) {
+          await client.sendChannelMessage(
+            transactionChannelId,
+            dmMessage
+          );
+        } else {
+          console.warn(
+            "TRANSACTION_DM_CHANNEL_ID is not configured."
+          );
+        }
+
+        await client.replyToComment(
+          activity.commentId,
+`✅ Transaction Submitted
 
 ID: ${transactionId}
 Type: ${typeName}
 Team: ${team}
-Status: Pending Commissioner Approval`);
-  }catch(error){
-    console.error("Transaction command failed:",error);
-    await client.replyToComment(activity.commentId,error instanceof Error?`Could not submit the transaction: ${error.message}`:"Could not submit the transaction.");
-  }
-  return;
-}
+Status: Pending Commissioner Approval`
+        );
+      } catch (error) {
+        console.error(
+          "Transaction command failed:",
+          error
+        );
+
+        await client.replyToComment(
+          activity.commentId,
+          error instanceof Error
+            ? `Could not submit the transaction: ${error.message}`
+            : "Could not submit the transaction."
+        );
+      }
+
+      return;
+    }
 
 case "$roster": {
       if (!argumentsText) {
