@@ -1410,10 +1410,17 @@ ${resolvedPlayers
           process.env.TRANSACTION_DM_CHANNEL_ID;
 
         if (transactionChannelId) {
-          await client.sendChannelMessage(
-            transactionChannelId,
-            dmMessage
-          );
+          try {
+            await client.sendChannelMessage(
+              transactionChannelId,
+              dmMessage
+            );
+          } catch (notificationError) {
+            console.error(
+              "Transaction was submitted, but the commissioner notification failed:",
+              notificationError
+            );
+          }
         } else {
           console.warn(
             "TRANSACTION_DM_CHANNEL_ID is not configured."
