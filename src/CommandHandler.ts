@@ -1412,9 +1412,9 @@ ${resolvedPlayers
         if (transactionChannelId) {
           try {
             await client.sendChannelMessage(
-              transactionChannelId,
-              dmMessage
-            );
+  dmMessage,
+  transactionChannelId
+);
           } catch (notificationError) {
             console.error(
               "Transaction was submitted, but the commissioner notification failed:",
