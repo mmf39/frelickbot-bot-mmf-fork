@@ -165,39 +165,26 @@ export class RealClient {
     }
 
     const response = await http.post(
-  `/messages/channels/${resolvedChannelId}/messages`,
-  {
-    message: {
-      content: {
-        nodes: [
-          {
-            type: "Paragraph",
-            children: [
-              {
-                text: message,
-                type: "Text",
-              },
-            ],
-          },
-        ],
+      `/messages/channels/${resolvedChannelId}/messages`,
+      {
+        text: message,
+        parentMessageId: null,
       },
-    },
-  },
-  {
-    headers: {
-      "real-auth-info":
-        this.session.authInfo,
-      "real-device-uuid":
-        this.session.deviceUuid,
-      "real-request-token":
-        RequestToken.generate(),
-      origin:
-        "https://www.realapp.com",
-      referer:
-        "https://www.realapp.com/",
-    },
-  }
-);
+      {
+        headers: {
+          "real-auth-info":
+            this.session.authInfo,
+          "real-device-uuid":
+            this.session.deviceUuid,
+          "real-request-token":
+            RequestToken.generate(),
+          origin:
+            "https://www.realapp.com",
+          referer:
+            "https://www.realapp.com/",
+        },
+      }
+    );
 
     return response.data;
   }
