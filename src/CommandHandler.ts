@@ -607,6 +607,29 @@ function parseLineupCommand(
   };
 }
 
+
+type TransactionType = "sign"|"cut"|"trade"|"namechange";
+type ParsedTransaction={type:TransactionType;details:string;};
+function parseTransactionCommand(argumentsText:string):ParsedTransaction|null{
+ const cleaned=String(argumentsText||"").trim();
+ const match=cleaned.match(/^(sign|signing|cut|trade|namechange|name-change|name change)\s+(.+)$/i);
+ if(!match)return null;
+ const raw=match[1].toLowerCase().replace(/[\s-]+/g,"");
+ const map:any={sign:"sign",signing:"sign",cut:"cut",trade:"trade",namechange:"namechange"};
+ const type=map[raw]; if(!type) return null;
+ return {type,details:match[2].trim()};
+}
+function formatTransactionType(type:TransactionType){return ({sign:"Signing",cut:"Cut",trade:"Trade",namechange:"Player Name Change"} as any)[type];}
+async function callTransactionApi(body:Record<string,unknown>):Promise<any>{
+ const url=process.env.TRANSACTION_API_URL;
+ if(!url) throw new Error("TRANSACTION_API_URL is not configured.");
+ const response=await fetch(url,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});
+ const txt=await response.text(); let result:any;
+ try{result=JSON.parse(txt);}catch{throw new Error(`Transaction API returned invalid JSON: ${txt.slice(0,200)}`);}
+ if(!response.ok||!result.ok) throw new Error(result.message||`Transaction API failed with status ${response.status}.`);
+ return result;
+}
+
 async function callLineupApi(
   body: Record<string, unknown>
 ): Promise<any> {
@@ -893,6 +916,7 @@ $roster [team] - Show a team's roster
 $cap [team/all] - Show salary-cap information
 $live [team] - Show live game scores
 $lineup [today/date] - Submit or queue a six-player lineup\n$lineup lock time [time] - Set the daily Eastern lineup deadline
+$transaction [sign/cut/trade/namechange] [details] - Submit a transaction request
 $[team] - Show a team's information`
   );
 
@@ -1283,7 +1307,40 @@ ${resolvedPlayers
       return;
     }
 
-    case "$roster": {
+    case "$transaction": {
+  const parsed=parseTransactionCommand(argumentsText);
+  if(!parsed){await client.replyToComment(activity.commentId,`Use one of these formats:
+
+@rsklbot $transaction sign @Player
+@rsklbot $transaction cut @Player
+@rsklbot $transaction namechange @OldName @NewName
+@rsklbot $transaction trade Team | give: assets | receive: assets`); return;}
+  const submittingUserId=getSubmittingUserId(activity);
+  if(!submittingUserId){await client.replyToComment(activity.commentId,"I could not identify who submitted this transaction."); return;}
+  try{
+    const result=await callTransactionApi({action:"submitTransaction",submittedByUserId:submittingUserId,transactionType:parsed.type,details:parsed.details,source:"Real Bot",submittedAt:new Date().toISOString()});
+    const transactionId=String(result.transactionId??result.id??"Pending");
+    const team=String(result.team??result.gmTeam??"Unknown Team");
+    const typeName=formatTransactionType(parsed.type);
+    const dmMessage=["📋 New RSKL Transaction Request","","ID: "+transactionId,`Type: ${typeName}`,`Team: ${team}`,`Submitted By User ID: ${submittingUserId}`,"",`Details: ${parsed.details}`,"","Status: Pending Commissioner Approval"].join("\n");
+    await client.sendChannelMessage(
+  process.env.TRANSACTION_DM_CHANNEL_ID!,
+  dmMessage
+);
+    await client.replyToComment(activity.commentId,`✅ Transaction Submitted
+
+ID: ${transactionId}
+Type: ${typeName}
+Team: ${team}
+Status: Pending Commissioner Approval`);
+  }catch(error){
+    console.error("Transaction command failed:",error);
+    await client.replyToComment(activity.commentId,error instanceof Error?`Could not submit the transaction: ${error.message}`:"Could not submit the transaction.");
+  }
+  return;
+}
+
+case "$roster": {
       if (!argumentsText) {
         await client.replyToComment(
           activity.commentId,
