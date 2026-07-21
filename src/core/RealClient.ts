@@ -479,8 +479,8 @@ export class RealClient {
       "/activity"
     );
   }
-}
-async getKarmaFeed(
+
+  async getKarmaFeed(
   userId: string
 ): Promise<{
   val: number;
@@ -537,4 +537,5 @@ async getKarmaFeed(
       rank: 0,
     };
   }
+}
 }
