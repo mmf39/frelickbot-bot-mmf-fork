@@ -480,3 +480,61 @@ export class RealClient {
     );
   }
 }
+async getKarmaFeed(
+  userId: string
+): Promise<{
+  val: number;
+  rank: number;
+}> {
+  const cleanedUserId =
+    String(userId || "").trim();
+
+  if (!cleanedUserId) {
+    return {
+      val: 0,
+      rank: 0,
+    };
+  }
+
+  try {
+    const response = await http.get(
+      `https://web.realsports.io/user/${encodeURIComponent(
+        cleanedUserId
+      )}/karmafeed`,
+      {
+        headers: {
+          ...this.createHeaders(),
+          origin:
+            "https://realsports.io",
+          referer:
+            "https://realsports.io/",
+          "real-version": "27",
+        },
+      }
+    );
+
+    const stats =
+      response.data?.stats ?? {};
+
+    return {
+      val: Number(
+        stats.karmaDelta || 0
+      ),
+      rank: Number(
+        stats.karmaDayRank || 0
+      ),
+    };
+  } catch (error: any) {
+    console.error(
+      `Karma fetch failed for ${cleanedUserId}:`,
+      error?.response?.status ??
+        error?.message ??
+        error
+    );
+
+    return {
+      val: 0,
+      rank: 0,
+    };
+  }
+}
