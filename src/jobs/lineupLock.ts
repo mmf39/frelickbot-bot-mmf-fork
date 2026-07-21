@@ -217,7 +217,7 @@ function formatLineup(lineup: SubmittedLineup): string {
   return lines.join("\n");
 }
 
-async function main(): Promise<void> {
+export async function runLineupLock(): Promise<void> {
   const date = getEasternIsoDate();
   const gotdResponse = await callLineupApi("getGotdPost", { date });
   const gotdPost = findGotdPost(gotdResponse);
@@ -290,7 +290,9 @@ async function main(): Promise<void> {
   );
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  runLineupLock().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+}
