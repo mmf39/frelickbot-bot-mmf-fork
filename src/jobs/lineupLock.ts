@@ -1,6 +1,7 @@
 import "dotenv/config";
 
 import { RealClient } from "../core/RealClient";
+import { getSchedule } from "../google/ScheduleService";
 
 type GotdPost = {
   date?: string;
@@ -24,7 +25,12 @@ type CommentReply = {
   karma?: number | string;
 };
 
-function getEasternIsoDate(): string {
+type DateParts = {
+  isoDate: string;
+  monthDay: string;
+};
+
+function getEasternDateParts(): DateParts {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York",
     year: "numeric",
@@ -40,7 +46,10 @@ function getEasternIsoDate(): string {
     throw new Error("Could not determine today's Eastern date.");
   }
 
-  return `${year}-${month}-${day}`;
+  return {
+    isoDate: `${year}-${month}-${day}`,
+    monthDay: `${Number(month)}/${Number(day)}`,
+  };
 }
 
 function getApiUrl(): string {
@@ -107,6 +116,32 @@ function findGotdPost(data: any): GotdPost | null {
   return null;
 }
 
+function extractCommentId(value: unknown): string | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const candidates = [record.id, record.commentId, record.commentID];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
+    }
+
+    if (typeof candidate === "number" && Number.isFinite(candidate)) {
+      return String(candidate);
+    }
+  }
+
+  for (const nested of [record.comment, record.data, record.result, record.response]) {
+    const found = extractCommentId(nested);
+    if (found) return found;
+  }
+
+  return null;
+}
+
 function extractReplies(data: any): CommentReply[] {
   const candidates = [
     data,
@@ -149,6 +184,14 @@ function normalizePlayer(value: unknown): string {
   return player.startsWith("@") ? player : `@${player}`;
 }
 
+function normalizeMatchupText(value: unknown): string {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/\s*(?:vs\.?|v\.)\s*/g, " vs ")
+    .trim();
+}
+
 function chooseWinner(replies: CommentReply[]): CommentReply | null {
   return (
     replies
@@ -180,8 +223,19 @@ function getLatestLineups(lineups: SubmittedLineup[]): SubmittedLineup[] {
     }
   }
 
-  return [...latestByTeam.values()].sort((a, b) =>
-    String(a.team || "").localeCompare(String(b.team || ""))
+  return [...latestByTeam.values()];
+}
+
+function findLineupForTeam(
+  lineups: SubmittedLineup[],
+  teamName: string
+): SubmittedLineup {
+  const target = teamName.trim().toLowerCase();
+
+  return (
+    lineups.find(
+      (lineup) => String(lineup.team || "").trim().toLowerCase() === target
+    ) || { team: teamName }
   );
 }
 
@@ -217,13 +271,27 @@ function formatLineup(lineup: SubmittedLineup): string {
   return lines.join("\n");
 }
 
+function formatMatchup(
+  awayTeam: string,
+  homeTeam: string,
+  lineups: SubmittedLineup[]
+): string {
+  return [
+    formatLineup(findLineupForTeam(lineups, awayTeam)),
+    "-------------",
+    formatLineup(findLineupForTeam(lineups, homeTeam)),
+  ].join("\n");
+}
+
 export async function runLineupLock(): Promise<void> {
-  const date = getEasternIsoDate();
-  const gotdResponse = await callLineupApi("getGotdPost", { date });
+  const today = getEasternDateParts();
+  const gotdResponse = await callLineupApi("getGotdPost", {
+    date: today.isoDate,
+  });
   const gotdPost = findGotdPost(gotdResponse);
 
   if (!gotdPost?.parentCommentId) {
-    console.log(`No saved GOTD post found for ${date}.`);
+    console.log(`No saved GOTD post found for ${today.isoDate}.`);
     return;
   }
 
@@ -234,7 +302,7 @@ export async function runLineupLock(): Promise<void> {
     .toLowerCase();
 
   if (["posted", "complete", "completed", "sent"].includes(lockStatus)) {
-    console.log(`The lineup-lock post was already sent for ${date}.`);
+    console.log(`The lineup-lock post was already sent for ${today.isoDate}.`);
     return;
   }
 
@@ -256,37 +324,77 @@ export async function runLineupLock(): Promise<void> {
 
   const winner = chooseWinner(extractReplies(repliesResponse));
   const winnerText = String(
-    winner?.plainText ?? winner?.text ?? "No GOTD winner"
+    winner?.plainText ?? winner?.text ?? ""
   ).trim();
   const winnerKarma = Number(winner?.karma || 0);
 
-  const lineupResponse = await callLineupApi("getSubmittedLineups", { date });
-  const lineups = getLatestLineups(extractLineups(lineupResponse));
+  const games = (await getSchedule()).filter(
+    (game) => game.date === today.monthDay
+  );
 
-  const messageParts = [
-    "🔒 Lineups are locked!",
-    "",
-    "🏆 **Game of the Day**",
-    `${winnerText} (${winnerKarma} vote${winnerKarma === 1 ? "" : "s"})`,
-  ];
-
-  if (lineups.length) {
-    messageParts.push("", ...lineups.map(formatLineup));
-  } else {
-    messageParts.push("", "No submitted lineups were found.");
+  if (!games.length) {
+    console.log(`No scheduled matchups found for ${today.monthDay}.`);
+    return;
   }
 
-  await client.postToGroup(messageParts.join("\n\n"), groupId);
+  const normalizedWinner = normalizeMatchupText(winnerText);
+  const gotdGame =
+    games.find(
+      (game) =>
+        normalizeMatchupText(`${game.away} vs ${game.home}`) === normalizedWinner
+    ) || games[0];
+
+  const lineupResponse = await callLineupApi("getSubmittedLineups", {
+    date: today.isoDate,
+  });
+  const lineups = getLatestLineups(extractLineups(lineupResponse));
+
+  const lineupThreadPost = await client.postToGroup("Lineups", groupId);
+  const lineupThreadId = extractCommentId(lineupThreadPost);
+
+  if (!lineupThreadId) {
+    throw new Error(
+      `Real created the Lineups post, but its comment ID could not be found. Response: ${JSON.stringify(
+        lineupThreadPost
+      )}`
+    );
+  }
+
+  const remainingGames = games.filter(
+    (game) =>
+      !(
+        game.away.trim().toLowerCase() === gotdGame.away.trim().toLowerCase() &&
+        game.home.trim().toLowerCase() === gotdGame.home.trim().toLowerCase()
+      )
+  );
+
+  for (const game of remainingGames) {
+    await client.replyToComment(
+      lineupThreadId,
+      formatMatchup(game.away, game.home, lineups),
+      groupId
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+
+  const gotdMessage = [
+    "🏆 Game of the Day",
+    formatMatchup(gotdGame.away, gotdGame.home, lineups),
+  ].join("\n");
+
+  await client.postToGroup(gotdMessage, groupId);
 
   await callLineupApi("markLineupLockPosted", {
-    date,
+    date: today.isoDate,
     winner: winnerText,
     winnerKarma,
+    lineupThreadCommentId: lineupThreadId,
     postedAt: new Date().toISOString(),
   });
 
   console.log(
-    `Posted lineup lock for ${date}. GOTD winner: ${winnerText} (${winnerKarma}).`
+    `Posted Lineups thread first and GOTD second for ${today.isoDate}. GOTD: ${gotdGame.away} vs ${gotdGame.home}.`
   );
 }
 
