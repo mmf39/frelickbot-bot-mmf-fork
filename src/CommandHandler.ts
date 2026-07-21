@@ -11,7 +11,7 @@ const TEAM_LINEUP_SUBMITTER_USER_IDS: Record<string, string[]> = {
   gusnem: ["rner1dZJ"],
   thephantoms: ["5nxBPRyv"],
   illegals: ["5nxPZYQn"],
-  pandas: ["jvbN8dbv"],
+  thepandas: ["jvbN8dbv"],
   superkings: ["7JkKrbKJ"],
   dreamteam: ["dvd60P4n"],
   badbois: ["xnr4NGkv"],
@@ -24,7 +24,7 @@ const TEAM_DISPLAY_NAMES: Record<string, string> = {
   gusnem: "Gus N Em",
   thephantoms: "The Phantoms",
   illegals: "Illegals",
-  pandas: "The Pandas",
+  thepandas: "The Pandas",
   superkings: "Super Kings",
   dreamteam: "Dream Team",
   badbois: "Bad Bois",
@@ -50,7 +50,7 @@ const DIVISIONS: Record<string, string[]> = {
     "Gus N Em",
     "The Phantoms",
     "Illegals",
-    "Pandas",
+    "The Pandas",
   ],
   south: [
     "Super Kings",
@@ -360,7 +360,7 @@ function getTeamEmoji(team: string): string {
       return "🎯";
     case "thefuture":
       return "🚀";
-    case "pandas":
+    case "thepandas":
       return "🐼";
     case "superkings":
       return "👑";
