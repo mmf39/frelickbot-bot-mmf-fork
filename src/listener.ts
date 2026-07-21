@@ -1,12 +1,15 @@
 import "dotenv/config";
 
+import cron from "node-cron";
 import { RealClient } from "./core/RealClient";
 import { handleActivity } from "./handlers/ActivityHandler";
+import { runLineupLock } from "./jobs/lineupLock";
 
 const client = new RealClient();
 client.loadSession();
 
 const handledActivityIds = new Set<string>();
+let lineupLockCheckRunning = false;
 
 function getActivities(response: any): any[] {
   if (Array.isArray(response)) return response;
@@ -48,10 +51,32 @@ async function checkActivities(): Promise<void> {
   }
 }
 
+async function checkLineupLock(): Promise<void> {
+  if (lineupLockCheckRunning) {
+    console.log("Skipping lineup-lock check because the previous check is still running.");
+    return;
+  }
+
+  lineupLockCheckRunning = true;
+
+  try {
+    await runLineupLock();
+  } catch (error) {
+    console.error("Lineup-lock check failed:", error);
+  } finally {
+    lineupLockCheckRunning = false;
+  }
+}
+
 console.log("FrelickBot command listener is running.");
+console.log("Lineup-lock checker will run every 5 minutes.");
 
 void checkActivities();
 
 setInterval(() => {
   void checkActivities();
 }, 15_000);
+
+cron.schedule("*/5 * * * *", () => {
+  void checkLineupLock();
+});
