@@ -130,12 +130,198 @@ async function approveTransaction(
 
   return result;
 }
+type LiveScoreUser = {
+  userId: string;
+  player?: string;
+};
 
+type LiveScoreResult = {
+  userId: string;
+  val: number;
+  rank: number;
+};
+
+const LIVE_SCORE_INTERVAL_MS =
+  5 * 60 * 1000;
+
+let liveScoreUpdateRunning = false;
+
+async function sendLiveScoreRequest(
+  url: string,
+  options?: RequestInit
+): Promise<any> {
+  const response = await fetch(
+    url,
+    options
+  );
+
+  const text =
+    await response.text();
+
+  let result: any;
+
+  try {
+    result = JSON.parse(text);
+  } catch {
+    throw new Error(
+      `Apps Script returned invalid JSON: ${text.slice(
+        0,
+        200
+      )}`
+    );
+  }
+
+  if (!response.ok || !result.ok) {
+    throw new Error(
+      result.message ||
+        `Apps Script request failed: ${response.status}`
+    );
+  }
+
+  return result;
+}
+
+async function updateLiveScoresFromRailway(
+  client: RealClient
+): Promise<void> {
+  if (liveScoreUpdateRunning) {
+    console.log(
+      "Live-score update already running."
+    );
+    return;
+  }
+
+  liveScoreUpdateRunning = true;
+
+  try {
+    const appsScriptUrl =
+      process.env.LIVE_SCORE_API_URL;
+
+    if (!appsScriptUrl) {
+      throw new Error(
+        "LIVE_SCORE_API_URL is missing."
+      );
+    }
+
+    console.log(
+      "Fetching active live-score users..."
+    );
+
+    const separator =
+      appsScriptUrl.includes("?")
+        ? "&"
+        : "?";
+
+    const input =
+      await sendLiveScoreRequest(
+        `${appsScriptUrl}${separator}action=getLiveScoreUsers`
+      );
+
+    const users: LiveScoreUser[] =
+      Array.isArray(input.users)
+        ? input.users
+        : [];
+
+    console.log(
+      `Fetching scores for ${users.length} users.`
+    );
+
+    const scores: LiveScoreResult[] =
+      [];
+
+    const batchSize = 5;
+
+    for (
+      let start = 0;
+      start < users.length;
+      start += batchSize
+    ) {
+      const batch = users.slice(
+        start,
+        start + batchSize
+      );
+
+      const batchScores =
+        await Promise.all(
+          batch.map(async (user) => {
+            const karma =
+              await client.getKarmaFeed(
+                user.userId
+              );
+
+            console.log(
+              `${user.player || user.userId}: ${karma.val} | Rank ${karma.rank}`
+            );
+
+            return {
+              userId: user.userId,
+              val: karma.val,
+              rank: karma.rank,
+            };
+          })
+        );
+
+      scores.push(...batchScores);
+
+      if (
+        start + batchSize <
+        users.length
+      ) {
+        await new Promise(
+          (resolve) =>
+            setTimeout(resolve, 500)
+        );
+      }
+    }
+
+    const saved =
+      await sendLiveScoreRequest(
+        appsScriptUrl,
+        {
+          method: "POST",
+          headers: {
+            "content-type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            action:
+              "saveLiveScoresAndRefresh",
+            leagueDate:
+              input.leagueDate,
+            scores,
+          }),
+        }
+      );
+
+    console.log(
+      `✅ Live scores updated. ${saved.saved} scores saved.`
+    );
+  } catch (error) {
+    console.error(
+      "Live-score update failed:",
+      error
+    );
+  } finally {
+    liveScoreUpdateRunning = false;
+  }
+}
 async function main() {
   const client = new RealClient();
 
   client.loadSession();
+console.log(
+  "Starting Railway live-score updater."
+);
 
+void updateLiveScoresFromRailway(
+  client
+);
+
+setInterval(() => {
+  void updateLiveScoresFromRailway(
+    client
+  );
+}, LIVE_SCORE_INTERVAL_MS);
   console.log("==========================");
   console.log("FrelickBot Started");
   console.log("==========================");
