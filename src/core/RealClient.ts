@@ -4,6 +4,15 @@ import { http } from "./http";
 import { Session } from "./Session";
 import { RequestToken } from "./RequestToken";
 
+type RealRequestHeaders = {
+  "real-auth-info": string;
+  "real-device-uuid": string;
+  "real-request-token": string;
+  origin: string;
+  referer: string;
+  "real-turnstile-token"?: string;
+};
+
 export class RealClient {
   private session: Session | null = null;
 
@@ -62,24 +71,309 @@ export class RealClient {
     return this.session;
   }
 
-  async postToGroup(
-    text: string,
-    groupId?: string | number,
-    parentCommentId: string | null = null
-  ): Promise<any> {
+  private requireSession(): Session {
     if (!this.session) {
       throw new Error(
         "No session has been loaded"
       );
     }
 
+    return this.session;
+  }
+
+  private createHeaders(
+    includeTurnstile = false
+  ): RealRequestHeaders {
+    const session = this.requireSession();
+
+    const headers: RealRequestHeaders = {
+      "real-auth-info":
+        session.authInfo,
+      "real-device-uuid":
+        session.deviceUuid,
+      "real-request-token":
+        RequestToken.generate(),
+      origin:
+        "https://www.realapp.com",
+      referer:
+        "https://www.realapp.com/",
+    };
+
+    if (includeTurnstile) {
+      const turnstileToken =
+        process.env.REAL_TURNSTILE_TOKEN;
+
+      if (!turnstileToken) {
+        throw new Error(
+          "REAL_TURNSTILE_TOKEN is missing"
+        );
+      }
+
+      headers["real-turnstile-token"] =
+        turnstileToken;
+    }
+
+    return headers;
+  }
+
+  async getFromReal(
+    requestPath: string,
+    params?: Record<
+      string,
+      string | number | boolean | undefined
+    >
+  ): Promise<any> {
+    const cleanedPath =
+      String(requestPath || "").trim();
+
+    if (!cleanedPath) {
+      throw new Error(
+        "A Real API path is required."
+      );
+    }
+
+    const response = await http.get(
+      cleanedPath.startsWith("/")
+        ? cleanedPath
+        : `/${cleanedPath}`,
+      {
+        headers: this.createHeaders(),
+        params,
+      }
+    );
+
+    return response.data;
+  }
+
+  async postToReal(
+    requestPath: string,
+    body: unknown,
+    includeTurnstile = false
+  ): Promise<any> {
+    const cleanedPath =
+      String(requestPath || "").trim();
+
+    if (!cleanedPath) {
+      throw new Error(
+        "A Real API path is required."
+      );
+    }
+
+    const response = await http.post(
+      cleanedPath.startsWith("/")
+        ? cleanedPath
+        : `/${cleanedPath}`,
+      body,
+      {
+        headers: this.createHeaders(
+          includeTurnstile
+        ),
+      }
+    );
+
+    return response.data;
+  }
+
+  async getUserByUsername(
+    username: string
+  ): Promise<any> {
+    const cleanedUsername =
+      String(username || "")
+        .trim()
+        .replace(/^@/, "");
+
+    if (!cleanedUsername) {
+      throw new Error(
+        "Username is required."
+      );
+    }
+
+    return this.getFromReal(
+      `/user/${encodeURIComponent(
+        cleanedUsername
+      )}`
+    );
+  }
+
+  async getPlayerSport(
+    playerId: string | number,
+    sport: string,
+    season: string | number
+  ): Promise<any> {
+    const cleanedPlayerId =
+      String(playerId || "").trim();
+
+    const cleanedSport =
+      String(sport || "")
+        .trim()
+        .toLowerCase();
+
+    if (
+      !cleanedPlayerId ||
+      !cleanedSport
+    ) {
+      throw new Error(
+        "Player ID and sport are required."
+      );
+    }
+
+    return this.getFromReal(
+      `/players/${encodeURIComponent(
+        cleanedPlayerId
+      )}/sport/${encodeURIComponent(
+        cleanedSport
+      )}`,
+      {
+        season,
+      }
+    );
+  }
+
+  async getPlayerSeasonFeed(
+    playerId: string | number,
+    sport: string,
+    season: string | number,
+    limit = 10
+  ): Promise<any> {
+    const cleanedPlayerId =
+      String(playerId || "").trim();
+
+    const cleanedSport =
+      String(sport || "")
+        .trim()
+        .toLowerCase();
+
+    if (
+      !cleanedPlayerId ||
+      !cleanedSport
+    ) {
+      throw new Error(
+        "Player ID and sport are required."
+      );
+    }
+
+    return this.getFromReal(
+      `/players/${encodeURIComponent(
+        cleanedPlayerId
+      )}/sport/${encodeURIComponent(
+        cleanedSport
+      )}/seasonfeed`,
+      {
+        limit,
+        season,
+        view: "recent",
+        viewFrame: "default",
+      }
+    );
+  }
+
+  async getPlayerBoxScore(
+    boxScoreId: string | number
+  ): Promise<any> {
+    const cleanedBoxScoreId =
+      String(boxScoreId || "").trim();
+
+    if (!cleanedBoxScoreId) {
+      throw new Error(
+        "Box score ID is required."
+      );
+    }
+
+    return this.getFromReal(
+      `/playerboxscores/${encodeURIComponent(
+        cleanedBoxScoreId
+      )}`,
+      {
+        version: 2,
+      }
+    );
+  }
+
+  async getUserPassEarnings(
+    sport: string,
+    season: string | number,
+    playerId: string | number,
+    playerBoxScoreId: string | number
+  ): Promise<any> {
+    const cleanedSport =
+      String(sport || "")
+        .trim()
+        .toLowerCase();
+
+    const cleanedPlayerId =
+      String(playerId || "").trim();
+
+    const cleanedBoxScoreId =
+      String(playerBoxScoreId || "").trim();
+
+    if (
+      !cleanedSport ||
+      !cleanedPlayerId ||
+      !cleanedBoxScoreId
+    ) {
+      throw new Error(
+        "Sport, player ID, and box score ID are required."
+      );
+    }
+
+    return this.getFromReal(
+      `/userpassearnings/${encodeURIComponent(
+        cleanedSport
+      )}/season/${encodeURIComponent(
+        String(season)
+      )}/entity/player/${encodeURIComponent(
+        cleanedPlayerId
+      )}`,
+      {
+        playerBoxScoreId:
+          cleanedBoxScoreId,
+      }
+    );
+  }
+
+  async getUserPasses(
+    userId: string,
+    sport: string,
+    season: string | number
+  ): Promise<any> {
+    const cleanedUserId =
+      String(userId || "").trim();
+
+    const cleanedSport =
+      String(sport || "")
+        .trim()
+        .toLowerCase();
+
+    if (
+      !cleanedUserId ||
+      !cleanedSport
+    ) {
+      throw new Error(
+        "User ID and sport are required."
+      );
+    }
+
+    return this.getFromReal(
+      `/userpasses/${encodeURIComponent(
+        cleanedUserId
+      )}/passes`,
+      {
+        entityType: "player",
+        season,
+        sport: cleanedSport,
+      }
+    );
+  }
+
+  async postToGroup(
+    text: string,
+    groupId?: string | number,
+    parentCommentId: string | null = null
+  ): Promise<any> {
     const resolvedGroupId = Number(
       groupId ??
       process.env.REAL_GROUP_ID
     );
-
-    const turnstileToken =
-      process.env.REAL_TURNSTILE_TOKEN;
 
     if (
       !Number.isInteger(resolvedGroupId) ||
@@ -90,38 +384,24 @@ export class RealClient {
       );
     }
 
-    if (!turnstileToken) {
+    const message =
+      String(text || "").trim();
+
+    if (!message) {
       throw new Error(
-        "REAL_TURNSTILE_TOKEN is missing"
+        "Cannot post an empty group message."
       );
     }
 
-    const response = await http.post(
+    return this.postToReal(
       `/comments/groups/${resolvedGroupId}`,
       {
         groupId: resolvedGroupId,
-        text,
+        text: message,
         parentCommentId,
       },
-      {
-        headers: {
-          "real-auth-info":
-            this.session.authInfo,
-          "real-device-uuid":
-            this.session.deviceUuid,
-          "real-request-token":
-            RequestToken.generate(),
-          "real-turnstile-token":
-            turnstileToken,
-          origin:
-            "https://www.realapp.com",
-          referer:
-            "https://www.realapp.com/",
-        },
-      }
+      true
     );
-
-    return response.data;
   }
 
   async replyToComment(
@@ -140,12 +420,6 @@ export class RealClient {
     text: string,
     channelId?: string | number
   ): Promise<any> {
-    if (!this.session) {
-      throw new Error(
-        "No session has been loaded"
-      );
-    }
-
     const resolvedChannelId = String(
       channelId ??
       process.env.TRANSACTION_DM_CHANNEL_ID ??
@@ -158,9 +432,8 @@ export class RealClient {
       );
     }
 
-    const message = String(
-      text || ""
-    ).trim();
+    const message =
+      String(text || "").trim();
 
     if (!message) {
       throw new Error(
@@ -168,40 +441,20 @@ export class RealClient {
       );
     }
 
-    const response = await http.post(
-      `/messages/channels/${resolvedChannelId}/messages`,
+    return this.postToReal(
+      `/messages/channels/${encodeURIComponent(
+        resolvedChannelId
+      )}/messages`,
       {
         text: message,
         parentMessageId: null,
-      },
-      {
-        headers: {
-          "real-auth-info":
-            this.session.authInfo,
-          "real-device-uuid":
-            this.session.deviceUuid,
-          "real-request-token":
-            RequestToken.generate(),
-          origin:
-            "https://www.realapp.com",
-          referer:
-            "https://www.realapp.com/",
-        },
       }
     );
-
-    return response.data;
   }
 
   async getChannelMessages(
     channelId?: string | number
   ): Promise<any> {
-    if (!this.session) {
-      throw new Error(
-        "No session has been loaded"
-      );
-    }
-
     const resolvedChannelId = String(
       channelId ??
       process.env.TRANSACTION_DM_CHANNEL_ID ??
@@ -214,48 +467,16 @@ export class RealClient {
       );
     }
 
-    const response = await http.get(
-      `/messages/channels/${resolvedChannelId}/messages`,
-      {
-        headers: {
-          "real-auth-info":
-            this.session.authInfo,
-          "real-device-uuid":
-            this.session.deviceUuid,
-          "real-request-token":
-            RequestToken.generate(),
-          origin:
-            "https://www.realapp.com",
-          referer:
-            "https://www.realapp.com/",
-        },
-      }
+    return this.getFromReal(
+      `/messages/channels/${encodeURIComponent(
+        resolvedChannelId
+      )}/messages`
     );
-
-    return response.data;
   }
 
   async getActivity(): Promise<any> {
-    if (!this.session) {
-      throw new Error(
-        "No session has been loaded"
-      );
-    }
-
-    const response = await http.get(
-      "/activity",
-      {
-        headers: {
-          "real-auth-info":
-            this.session.authInfo,
-          "real-device-uuid":
-            this.session.deviceUuid,
-          "real-request-token":
-            RequestToken.generate(),
-        },
-      }
+    return this.getFromReal(
+      "/activity"
     );
-
-    return response.data;
   }
 }
