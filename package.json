@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "tsx src/index.ts",
     "build": "tsc",
-    "start": "node -r ./dist/lineupScheduler.js dist/index.js",
+    "start": "node -r ./dist/puppeteerGroupPostPatch.js -r ./dist/lineupScheduler.js dist/index.js",
     "gotd": "tsx src/jobs/gotd.ts",
     "lineup-lock": "tsx src/jobs/lineupLock.ts",
     "lineup-announcement": "tsx src/jobs/lineupAnnouncement.ts",
