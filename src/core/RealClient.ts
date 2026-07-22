@@ -393,15 +393,47 @@ export class RealClient {
       );
     }
 
-    return this.postToReal(
-      `/comments/groups/${resolvedGroupId}`,
-      {
-        groupId: resolvedGroupId,
-        text: message,
-        parentCommentId,
-      },
-      true
-    );
+    const requestPath =
+      `/comments/groups/${resolvedGroupId}`;
+
+    const body = {
+      groupId: resolvedGroupId,
+      text: message,
+      parentCommentId,
+    };
+
+    try {
+      return await this.postToReal(
+        requestPath,
+        body,
+        false
+      );
+    } catch (error: any) {
+      const status =
+        error?.response?.status ??
+        error?.status;
+
+      const hasTurnstileToken = Boolean(
+        process.env.REAL_TURNSTILE_TOKEN
+      );
+
+      if (
+        (status === 401 || status === 403) &&
+        hasTurnstileToken
+      ) {
+        console.log(
+          "Group post without Turnstile was rejected; retrying once with the configured token."
+        );
+
+        return this.postToReal(
+          requestPath,
+          body,
+          true
+        );
+      }
+
+      throw error;
+    }
   }
 
   async replyToComment(
