@@ -84,7 +84,7 @@ async function getBrowser(): Promise<Browser> {
 
   const browser = await browserPromise;
 
-  if (!browser.isConnected()) {
+  if (!browser.connected) {
     browserPromise = null;
     return getBrowser();
   }
@@ -137,6 +137,19 @@ async function clickLoginLink(page: Page): Promise<void> {
   });
 }
 
+async function clearAndType(
+  page: Page,
+  selector: string,
+  value: string
+): Promise<void> {
+  await page.focus(selector);
+  await page.keyboard.down("Control");
+  await page.keyboard.press("A");
+  await page.keyboard.up("Control");
+  await page.keyboard.press("Backspace");
+  await page.type(selector, value, { delay: 25 });
+}
+
 async function loginToReal(page: Page): Promise<void> {
   const login = getLogin();
   const password = getPassword();
@@ -161,24 +174,12 @@ async function loginToReal(page: Page): Promise<void> {
   await page.waitForSelector(loginSelector, {
     timeout: 30000,
   });
-
-  await page.click(loginSelector, {
-    clickCount: 3,
-  });
-  await page.type(loginSelector, login, {
-    delay: 25,
-  });
+  await clearAndType(page, loginSelector, login);
 
   await page.waitForSelector(passwordSelector, {
     timeout: 30000,
   });
-
-  await page.click(passwordSelector, {
-    clickCount: 3,
-  });
-  await page.type(passwordSelector, password, {
-    delay: 25,
-  });
+  await clearAndType(page, passwordSelector, password);
 
   const submitted = await page.evaluate(() => {
     const buttons = Array.from(
