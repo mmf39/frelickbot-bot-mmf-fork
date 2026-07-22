@@ -1,22 +1,26 @@
-import { Page } from "puppeteer";
+import { ElementHandle, Page } from "puppeteer";
 import { RealClient } from "./core/RealClient";
 import { openRealBrowser } from "./realBrowser";
 
 const DEFAULT_GROUP_URL_TEMPLATE =
-  "https://www.real.vg/groups/{groupId}";
+  "https://www.realsports.io/groups/{groupId}";
 
 let postQueue: Promise<unknown> = Promise.resolve();
 
 function getGroupUrl(groupId: number): string {
-  const template = String(
-    process.env.REAL_GROUP_URL_TEMPLATE ||
-      DEFAULT_GROUP_URL_TEMPLATE
+  const configured = String(
+    process.env.REAL_GROUP_URL_TEMPLATE || DEFAULT_GROUP_URL_TEMPLATE
   ).trim();
+
+  const template =
+    !configured || /real\.vg|web\.realapp\.com/i.test(configured)
+      ? DEFAULT_GROUP_URL_TEMPLATE
+      : configured;
 
   return template.replace("{groupId}", String(groupId));
 }
 
-async function findComposer(page: Page) {
+async function findComposer(page: Page): Promise<ElementHandle<Element>> {
   const customSelector = String(
     process.env.REAL_COMMENT_INPUT_SELECTOR || ""
   ).trim();
@@ -37,7 +41,7 @@ async function findComposer(page: Page) {
         const element = await frame.$(selector);
         if (element) return element;
       } catch {
-        // Ignore detached frames while searching.
+        // Ignore frames that changed while searching.
       }
     }
   }
@@ -54,31 +58,26 @@ async function clickReplyForParent(
   for (const frame of page.frames()) {
     try {
       const result = await frame.evaluate((commentId) => {
-        const target = Array.from(
-          document.querySelectorAll("*")
-        ).find((node) =>
-          node
-            .getAttributeNames()
-            .some((name) =>
-              String(node.getAttribute(name) || "").includes(
-                commentId
+        const target = Array.from(document.querySelectorAll("*")).find(
+          (node) =>
+            node
+              .getAttributeNames()
+              .some((name) =>
+                String(node.getAttribute(name) || "").includes(commentId)
               )
-            )
         );
 
-        if (!target) return "parent-not-found";
+        if (!target) return false;
 
         const container =
           target.closest("article") ||
           target.closest('[role="article"]') ||
           target.parentElement;
 
-        if (!container) return "container-not-found";
+        if (!container) return false;
 
         const buttons = Array.from(
-          container.querySelectorAll(
-            'button, [role="button"]'
-          )
+          container.querySelectorAll('button, [role="button"]')
         ) as HTMLElement[];
 
         const replyButton = buttons.find((element) =>
@@ -86,17 +85,18 @@ async function clickReplyForParent(
             String(
               element.innerText ||
                 element.getAttribute("aria-label") ||
+                element.getAttribute("title") ||
                 ""
             )
           )
         );
 
-        if (!replyButton) return "reply-button-not-found";
+        if (!replyButton) return false;
         replyButton.click();
-        return "clicked";
+        return true;
       }, parentCommentId);
 
-      if (result === "clicked") {
+      if (result) {
         await new Promise((resolve) => setTimeout(resolve, 750));
         return;
       }
@@ -110,10 +110,7 @@ async function clickReplyForParent(
   );
 }
 
-async function enterText(
-  page: Page,
-  message: string
-): Promise<void> {
+async function enterText(page: Page, message: string): Promise<void> {
   const composer = await findComposer(page);
   await composer.click();
 
@@ -136,12 +133,8 @@ async function enterText(
         )?.set;
 
         setter?.call(target, text);
-        target.dispatchEvent(
-          new Event("input", { bubbles: true })
-        );
-        target.dispatchEvent(
-          new Event("change", { bubbles: true })
-        );
+        target.dispatchEvent(new Event("input", { bubbles: true }));
+        target.dispatchEvent(new Event("change", { bubbles: true }));
       } else {
         target.focus();
         target.textContent = text;
@@ -159,7 +152,7 @@ async function enterText(
   );
 }
 
-async function clickSubmit(page: Page): Promise<void> {
+async function clickSubmit(page: Page): Promise<string> {
   const customSelector = String(
     process.env.REAL_COMMENT_SUBMIT_SELECTOR || ""
   ).trim();
@@ -169,37 +162,40 @@ async function clickSubmit(page: Page): Promise<void> {
       const button = await frame.$(customSelector).catch(() => null);
       if (button) {
         await button.click();
-        return;
+        return "custom-selector";
       }
     }
-
-    throw new Error(
-      `REAL_COMMENT_SUBMIT_SELECTOR did not match anything: ${customSelector}`
-    );
   }
 
   for (const frame of page.frames()) {
     try {
-      const clicked = await frame.evaluate(() => {
-        const buttons = Array.from(
+      const result = await frame.evaluate(() => {
+        const elements = Array.from(
           document.querySelectorAll(
-            'button, [role="button"]'
+            'button, [role="button"], input[type="submit"], [data-testid*="post" i], [data-testid*="send" i], [data-testid*="reply" i]'
           )
         ) as HTMLElement[];
 
-        const button = buttons.find((element) => {
-          const text = String(
-            element.innerText ||
-              element.getAttribute("aria-label") ||
-              ""
-          ).trim();
-
+        const button = elements.find((element) => {
           const disabled =
             element.hasAttribute("disabled") ||
             element.getAttribute("aria-disabled") === "true";
+          if (disabled) return false;
+
+          const rect = element.getBoundingClientRect();
+          if (!rect.width || !rect.height) return false;
+
+          const text = String(
+            element.innerText ||
+              element.getAttribute("value") ||
+              element.getAttribute("aria-label") ||
+              element.getAttribute("title") ||
+              ""
+          ).trim();
 
           return (
-            !disabled && /^(post|send|reply)$/i.test(text)
+            element.getAttribute("type") === "submit" ||
+            /^(post|send|reply|comment)$/i.test(text)
           );
         });
 
@@ -208,15 +204,14 @@ async function clickSubmit(page: Page): Promise<void> {
         return true;
       });
 
-      if (clicked) return;
+      if (result) return "clicked-button";
     } catch {
       // Keep checking other frames.
     }
   }
 
-  throw new Error(
-    "Could not find the Real Post/Send/Reply button. Set REAL_COMMENT_SUBMIT_SELECTOR in Railway if needed."
-  );
+  await page.keyboard.press("Enter");
+  return "pressed-enter";
 }
 
 async function postThroughBrowser(
@@ -226,6 +221,8 @@ async function postThroughBrowser(
 ): Promise<any> {
   const { page } = await openRealBrowser();
   const groupUrl = getGroupUrl(groupId);
+
+  console.log(`Opening Real group page: ${groupUrl}`);
 
   await page.goto(groupUrl, {
     waitUntil: "networkidle2",
@@ -251,7 +248,8 @@ async function postThroughBrowser(
   }
 
   await enterText(page, text);
-  await clickSubmit(page);
+  const submitMethod = await clickSubmit(page);
+  console.log(`Real comment submit method: ${submitMethod}`);
   await new Promise((resolve) => setTimeout(resolve, 2500));
 
   return {
@@ -273,9 +271,7 @@ RealClient.prototype.postToGroup = async function (
   groupId?: string | number,
   parentCommentId: string | null = null
 ): Promise<any> {
-  const resolvedGroupId = Number(
-    groupId ?? process.env.REAL_GROUP_ID
-  );
+  const resolvedGroupId = Number(groupId ?? process.env.REAL_GROUP_ID);
 
   if (!Number.isInteger(resolvedGroupId) || resolvedGroupId <= 0) {
     throw new Error("Group ID is missing or invalid.");
