@@ -1,4 +1,5 @@
 import "dotenv/config";
+import "./jobDmOnlyPatch";
 
 import { runLineupLock } from "./jobs/lineupLock";
 
