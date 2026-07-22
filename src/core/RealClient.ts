@@ -3,6 +3,12 @@ import path from "path";
 import { http } from "./http";
 import { Session } from "./Session";
 import { RequestToken } from "./RequestToken";
+import { launch } from 'cloakbrowser';
+
+const browser = await launch();
+const page = await browser.newPage();
+await page.goto('https://example.com');
+await browser.close();
 
 type RealRequestHeaders = {
   "real-auth-info": string;
