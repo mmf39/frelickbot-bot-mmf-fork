@@ -1,25 +1,13 @@
-import puppeteer, { Browser, Frame, Page } from "puppeteer";
+import puppeteer, { Browser, ElementHandle, Frame, Page } from "puppeteer";
 
 const profileDir =
   process.env.PUPPETEER_PROFILE_DIR || "/app/chrome-profile";
 
-function normalizeRealUrl(value: string): string {
-  const cleaned = String(value || "").trim();
-
-  if (
-    !cleaned ||
-    /real\.vg/i.test(cleaned) ||
-    /web\.realapp\.com/i.test(cleaned)
-  ) {
-    return "https://www.realsports.io";
-  }
-
-  return cleaned.replace(/\/$/, "");
-}
-
-const webAppUrl = normalizeRealUrl(
+const webAppUrl = String(
   process.env.REAL_WEB_APP_URL || "https://www.realsports.io"
-);
+)
+  .trim()
+  .replace(/\/$/, "");
 
 let browserPromise: Promise<Browser> | null = null;
 let sharedPage: Page | null = null;
@@ -40,37 +28,6 @@ function getPassword(): string {
       process.env.REAL_PASSWORD ||
       ""
   ).trim();
-}
-
-async function hasSavedLogin(page: Page): Promise<boolean> {
-  for (const frame of page.frames()) {
-    try {
-      const loggedIn = await frame.evaluate(() => {
-        const raw = localStorage.getItem("e-accounts");
-        if (!raw) return false;
-
-        try {
-          const accounts = JSON.parse(raw);
-          return (
-            Array.isArray(accounts) &&
-            accounts.some(
-              (account) =>
-                account?.authInfo?.userId &&
-                account?.authInfo?.token
-            )
-          );
-        } catch {
-          return false;
-        }
-      });
-
-      if (loggedIn) return true;
-    } catch {
-      // Ignore inaccessible or detached frames.
-    }
-  }
-
-  return false;
 }
 
 async function launchBrowser(): Promise<Browser> {
@@ -115,7 +72,9 @@ async function getBrowser(): Promise<Browser> {
 }
 
 async function getPage(browser: Browser): Promise<Page> {
-  if (sharedPage && !sharedPage.isClosed()) return sharedPage;
+  if (sharedPage && !sharedPage.isClosed()) {
+    return sharedPage;
+  }
 
   const pages = await browser.pages();
   sharedPage =
@@ -131,19 +90,22 @@ async function getPage(browser: Browser): Promise<Page> {
   return sharedPage;
 }
 
-async function findFrameWithSelector(
+async function findInput(
   page: Page,
   selector: string,
   timeoutMs = 30000
-): Promise<Frame> {
+): Promise<{ frame: Frame; input: ElementHandle<Element> }> {
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
     for (const frame of page.frames()) {
       try {
-        if (await frame.$(selector)) return frame;
+        const input = await frame.$(selector);
+        if (input) {
+          return { frame, input };
+        }
       } catch {
-        // Ignore frames that changed while checking.
+        // Frame changed while checking.
       }
     }
 
@@ -153,90 +115,45 @@ async function findFrameWithSelector(
   throw new Error(`Could not find selector in any frame: ${selector}`);
 }
 
-async function clearAndType(
+async function setInputValue(
   frame: Frame,
-  selector: string,
+  input: ElementHandle<Element>,
   value: string
 ): Promise<void> {
-  const input = await frame.$(selector);
-  if (!input) throw new Error(`Input disappeared: ${selector}`);
-
   await input.click();
-  await frame.evaluate((element) => {
-    const inputElement = element as HTMLInputElement;
-    inputElement.focus();
-    inputElement.select();
-    inputElement.value = "";
-    inputElement.dispatchEvent(new Event("input", { bubbles: true }));
-    inputElement.dispatchEvent(new Event("change", { bubbles: true }));
-  }, input);
-  await input.type(value, { delay: 25 });
-}
 
-async function logLoginDebug(page: Page, label: string): Promise<void> {
-  console.log("====================================");
-  console.log(`REAL LOGIN DEBUG: ${label}`);
-  console.log("====================================");
-  console.log("Current URL:", page.url());
-  console.log("Page Title:", await page.title());
-  console.log(
-    "Frames:",
-    page.frames().map((frame) => frame.url())
+  await frame.evaluate(
+    (element, nextValue) => {
+      const target = element as HTMLInputElement;
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value"
+      )?.set;
+
+      target.focus();
+      setter?.call(target, nextValue);
+      target.dispatchEvent(new Event("input", { bubbles: true }));
+      target.dispatchEvent(new Event("change", { bubbles: true }));
+    },
+    input,
+    value
   );
-
-  for (const frame of page.frames()) {
-    try {
-      const info = await frame.evaluate(() => ({
-        url: location.href,
-        text: (document.body?.innerText || "").substring(0, 3000),
-        buttons: Array.from(
-          document.querySelectorAll('button, [role="button"], input[type="submit"]')
-        ).map((element) => ({
-          tag: element.tagName,
-          type: element.getAttribute("type"),
-          text: String(
-            (element as HTMLElement).innerText ||
-              element.getAttribute("value") ||
-              element.getAttribute("aria-label") ||
-              ""
-          ).trim(),
-          disabled:
-            element.hasAttribute("disabled") ||
-            element.getAttribute("aria-disabled") === "true",
-        })),
-      }));
-      console.log("Frame debug:", JSON.stringify(info, null, 2));
-    } catch {
-      // Ignore inaccessible frames.
-    }
-  }
-
-  await page
-    .screenshot({
-      path: `/tmp/real-login-${label}.png`,
-      fullPage: true,
-    })
-    .catch(() => undefined);
 }
 
-async function submitLogin(
-  page: Page,
-  passwordFrame: Frame,
-  passwordSelector: string
-): Promise<string> {
-  const clickResult = await passwordFrame.evaluate(() => {
+async function clickLoginControl(frame: Frame): Promise<string> {
+  return frame.evaluate(() => {
     const elements = Array.from(
       document.querySelectorAll(
         'button, [role="button"], input[type="submit"], [data-testid*="login" i], [data-testid*="submit" i]'
       )
     ) as HTMLElement[];
 
-    const candidates = elements.filter((element) => {
+    const candidate = elements.find((element) => {
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
       const disabled =
         element.hasAttribute("disabled") ||
         element.getAttribute("aria-disabled") === "true";
-      if (disabled) return false;
-
       const text = String(
         element.innerText ||
           element.getAttribute("value") ||
@@ -246,24 +163,18 @@ async function submitLogin(
       ).trim();
 
       return (
-        element.getAttribute("type") === "submit" ||
-        /log\s*in|login|sign\s*in|continue|submit|next/i.test(text)
-      );
-    });
-
-    const visible = candidates.find((element) => {
-      const rect = element.getBoundingClientRect();
-      const style = getComputedStyle(element);
-      return (
+        !disabled &&
         rect.width > 0 &&
         rect.height > 0 &&
         style.display !== "none" &&
-        style.visibility !== "hidden"
+        style.visibility !== "hidden" &&
+        (element.getAttribute("type") === "submit" ||
+          /log\s*in|login|sign\s*in|continue|submit|next/i.test(text))
       );
     });
 
-    if (visible) {
-      visible.click();
+    if (candidate) {
+      candidate.click();
       return "clicked-button";
     }
 
@@ -273,27 +184,116 @@ async function submitLogin(
     const form = passwordInput?.form || passwordInput?.closest("form");
 
     if (form) {
-      if (typeof (form as HTMLFormElement).requestSubmit === "function") {
-        (form as HTMLFormElement).requestSubmit();
+      const htmlForm = form as HTMLFormElement;
+      if (typeof htmlForm.requestSubmit === "function") {
+        htmlForm.requestSubmit();
       } else {
-        (form as HTMLFormElement).submit();
+        htmlForm.submit();
       }
       return "submitted-form";
     }
 
     return "not-found";
   });
+}
 
-  if (clickResult !== "not-found") return clickResult;
+async function isAuthenticated(page: Page): Promise<boolean> {
+  for (const frame of page.frames()) {
+    try {
+      const result = await frame.evaluate(() => {
+        const passwordVisible = Boolean(
+          document.querySelector(
+            'input[type="password"], input[name="password"], input[autocomplete="current-password"]'
+          )
+        );
 
-  const passwordInput = await passwordFrame.$(passwordSelector);
-  if (passwordInput) {
-    await passwordInput.focus();
-    await page.keyboard.press("Enter");
-    return "pressed-enter";
+        let storedAuth = false;
+
+        for (let index = 0; index < localStorage.length; index += 1) {
+          const key = localStorage.key(index) || "";
+          const value = localStorage.getItem(key) || "";
+
+          if (
+            /account|auth|session|token|user/i.test(key) &&
+            /userId|authInfo|token|accessToken|refreshToken/i.test(value)
+          ) {
+            storedAuth = true;
+            break;
+          }
+        }
+
+        const bodyText = document.body?.innerText || "";
+        const loggedInUi =
+          /groups|activity|profile|messages|notifications|log out|sign out/i.test(
+            bodyText
+          );
+
+        return {
+          storedAuth,
+          passwordVisible,
+          loggedInUi,
+        };
+      });
+
+      if (
+        result.storedAuth ||
+        (!result.passwordVisible && result.loggedInUi)
+      ) {
+        return true;
+      }
+    } catch {
+      // Ignore inaccessible or detached frames.
+    }
   }
 
-  return "not-found";
+  return false;
+}
+
+async function logLoginDebug(page: Page, label: string): Promise<void> {
+  console.log("====================================");
+  console.log(`REAL LOGIN DEBUG: ${label}`);
+  console.log("====================================");
+  console.log("Current URL:", page.url());
+  console.log("Page Title:", await page.title());
+
+  for (const frame of page.frames()) {
+    try {
+      const info = await frame.evaluate(() => ({
+        url: location.href,
+        text: (document.body?.innerText || "").substring(0, 3000),
+        inputs: Array.from(document.querySelectorAll("input")).map(
+          (input) => ({
+            type: input.getAttribute("type"),
+            name: input.getAttribute("name"),
+            placeholder: input.getAttribute("placeholder"),
+          })
+        ),
+        buttons: Array.from(
+          document.querySelectorAll(
+            'button, [role="button"], input[type="submit"]'
+          )
+        ).map((element) =>
+          String(
+            (element as HTMLElement).innerText ||
+              element.getAttribute("value") ||
+              element.getAttribute("aria-label") ||
+              ""
+          ).trim()
+        ),
+      }));
+
+      console.log("Frame debug:", JSON.stringify(info, null, 2));
+    } catch {
+      // Ignore inaccessible or detached frames.
+    }
+  }
+
+  await page
+    .screenshot({
+      path: `/tmp/real-login-${label}.png`,
+      fullPage: true,
+    })
+    .catch(() => undefined);
 }
 
 async function loginToReal(page: Page): Promise<void> {
@@ -315,57 +315,37 @@ async function loginToReal(page: Page): Promise<void> {
 
   await logLoginDebug(page, "before-form");
 
-  let loginFrame: Frame;
-  try {
-    loginFrame = await findFrameWithSelector(page, loginSelector, 30000);
-  } catch (error) {
-    await logLoginDebug(page, "login-field-timeout");
-    throw error;
-  }
+  const loginField = await findInput(page, loginSelector);
+  await setInputValue(loginField.frame, loginField.input, login);
 
-  await clearAndType(loginFrame, loginSelector, login);
+  const passwordField = await findInput(page, passwordSelector);
+  await setInputValue(passwordField.frame, passwordField.input, password);
 
-  let passwordFrame: Frame;
-  try {
-    passwordFrame = await findFrameWithSelector(
-      page,
-      passwordSelector,
-      30000
-    );
-  } catch (error) {
-    await logLoginDebug(page, "password-field-timeout");
-    throw error;
-  }
-
-  await clearAndType(passwordFrame, passwordSelector, password);
-
-  const submitMethod = await submitLogin(
-    page,
-    passwordFrame,
-    passwordSelector
-  );
-  console.log(`Real login submit method: ${submitMethod}`);
+  let submitMethod = await clickLoginControl(passwordField.frame);
 
   if (submitMethod === "not-found") {
-    await logLoginDebug(page, "submit-not-found");
-    throw new Error("Could not submit the Real login form.");
+    await passwordField.input.focus();
+    await page.keyboard.press("Enter");
+    submitMethod = "pressed-enter";
   }
 
-  const deadline = Date.now() + 60000;
+  console.log(`Real login submit method: ${submitMethod}`);
+
+  const deadline = Date.now() + 90000;
 
   while (Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 1500));
 
-    if (await hasSavedLogin(page)) {
+    if (await isAuthenticated(page)) {
       console.log(
         "Real browser login successful. Session saved in the Railway volume."
       );
       return;
     }
 
-    const pageText = await page.evaluate(
-      () => document.body?.innerText || ""
-    );
+    const pageText = await page
+      .evaluate(() => document.body?.innerText || "")
+      .catch(() => "");
 
     if (
       /verify you are human|checking your browser|captcha|turnstile/i.test(
@@ -376,10 +356,21 @@ async function loginToReal(page: Page): Promise<void> {
         "Real showed an interactive verification challenge during login."
       );
     }
+
+    if (
+      /incorrect|invalid|wrong password|could not sign in|login failed/i.test(
+        pageText
+      )
+    ) {
+      await logLoginDebug(page, "credentials-rejected");
+      throw new Error("Real rejected the configured login credentials.");
+    }
   }
 
   await logLoginDebug(page, "login-failed");
-  throw new Error("Real browser login did not complete within 60 seconds.");
+  throw new Error(
+    "Real browser login did not complete within 90 seconds. Check the REAL LOGIN DEBUG output for the visible page text and controls."
+  );
 }
 
 export async function openRealBrowser(): Promise<{
@@ -396,7 +387,7 @@ export async function openRealBrowser(): Promise<{
     timeout: 60000,
   });
 
-  if (!(await hasSavedLogin(page))) {
+  if (!(await isAuthenticated(page))) {
     await loginToReal(page);
   } else {
     console.log("Existing Real browser session found in Railway volume.");
