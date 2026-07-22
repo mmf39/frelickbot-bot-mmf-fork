@@ -161,9 +161,11 @@ async function clearAndType(
   const input = await frame.$(selector);
   if (!input) throw new Error(`Input disappeared: ${selector}`);
 
-  await input.click({ clickCount: 3 });
+  await input.click();
   await frame.evaluate((element) => {
     const inputElement = element as HTMLInputElement;
+    inputElement.focus();
+    inputElement.select();
     inputElement.value = "";
     inputElement.dispatchEvent(new Event("input", { bubbles: true }));
     inputElement.dispatchEvent(new Event("change", { bubbles: true }));
