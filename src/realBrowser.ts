@@ -150,6 +150,37 @@ async function clearAndType(
   await page.type(selector, value, { delay: 25 });
 }
 
+async function logLoginDebug(page: Page): Promise<void> {
+  console.log("====================================");
+  console.log("REAL LOGIN DEBUG");
+  console.log("====================================");
+  console.log("Current URL:", page.url());
+  console.log("Page Title:", await page.title());
+
+  const bodyText = await page.evaluate(() => {
+    return document.body?.innerText || "";
+  });
+
+  console.log("----- PAGE TEXT START -----");
+  console.log(bodyText.substring(0, 5000));
+  console.log("----- PAGE TEXT END -----");
+
+  try {
+    await page.screenshot({
+      path: "/tmp/real-before-login.png",
+      fullPage: true,
+    });
+    console.log(
+      "Saved screenshot: /tmp/real-before-login.png"
+    );
+  } catch (error) {
+    console.error(
+      "Could not save login debug screenshot:",
+      error
+    );
+  }
+}
+
 async function loginToReal(page: Page): Promise<void> {
   const login = getLogin();
   const password = getPassword();
@@ -171,14 +202,80 @@ async function loginToReal(page: Page): Promise<void> {
   const passwordSelector =
     'input[type="password"], input[name="password"], input[autocomplete="current-password"]';
 
-  await page.waitForSelector(loginSelector, {
-    timeout: 30000,
-  });
+  await logLoginDebug(page);
+
+  try {
+    await page.waitForSelector(loginSelector, {
+      timeout: 30000,
+    });
+  } catch (error) {
+    console.error("Could not find login selector.");
+    console.error("Current URL:", page.url());
+    console.error("Page Title:", await page.title());
+
+    const bodyText = await page.evaluate(
+      () => document.body?.innerText || ""
+    );
+
+    console.error("----- LOGIN TIMEOUT PAGE TEXT START -----");
+    console.error(bodyText.substring(0, 5000));
+    console.error("----- LOGIN TIMEOUT PAGE TEXT END -----");
+
+    try {
+      await page.screenshot({
+        path: "/tmp/real-login-timeout.png",
+        fullPage: true,
+      });
+      console.error(
+        "Saved screenshot: /tmp/real-login-timeout.png"
+      );
+    } catch (screenshotError) {
+      console.error(
+        "Could not save login-timeout screenshot:",
+        screenshotError
+      );
+    }
+
+    throw error;
+  }
+
   await clearAndType(page, loginSelector, login);
 
-  await page.waitForSelector(passwordSelector, {
-    timeout: 30000,
-  });
+  try {
+    await page.waitForSelector(passwordSelector, {
+      timeout: 30000,
+    });
+  } catch (error) {
+    console.error("Could not find password selector.");
+    console.error("Current URL:", page.url());
+    console.error("Page Title:", await page.title());
+
+    const bodyText = await page.evaluate(
+      () => document.body?.innerText || ""
+    );
+
+    console.error("----- PASSWORD TIMEOUT PAGE TEXT START -----");
+    console.error(bodyText.substring(0, 5000));
+    console.error("----- PASSWORD TIMEOUT PAGE TEXT END -----");
+
+    try {
+      await page.screenshot({
+        path: "/tmp/real-password-timeout.png",
+        fullPage: true,
+      });
+      console.error(
+        "Saved screenshot: /tmp/real-password-timeout.png"
+      );
+    } catch (screenshotError) {
+      console.error(
+        "Could not save password-timeout screenshot:",
+        screenshotError
+      );
+    }
+
+    throw error;
+  }
+
   await clearAndType(page, passwordSelector, password);
 
   const submitted = await page.evaluate(() => {
