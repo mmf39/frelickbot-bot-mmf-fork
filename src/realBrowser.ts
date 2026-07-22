@@ -1,8 +1,11 @@
-import puppeteer, { Browser, Page } from "puppeteer";
+import puppeteer, { Browser, Frame, Page } from "puppeteer";
 
 const profileDir =
-  process.env.PUPPETEER_PROFILE_DIR ||
-  "/app/chrome-profile";
+  process.env.PUPPETEER_PROFILE_DIR || "/app/chrome-profile";
+
+const webAppUrl = String(
+  process.env.REAL_WEB_APP_URL || "https://www.real.vg"
+).trim();
 
 let browserPromise: Promise<Browser> | null = null;
 let sharedPage: Page | null = null;
@@ -26,33 +29,38 @@ function getPassword(): string {
 }
 
 async function hasSavedLogin(page: Page): Promise<boolean> {
-  return page.evaluate(() => {
-    const raw = localStorage.getItem("e-accounts");
-
-    if (!raw) {
-      return false;
-    }
-
+  for (const frame of page.frames()) {
     try {
-      const accounts = JSON.parse(raw);
-      return (
-        Array.isArray(accounts) &&
-        accounts.some(
-          (account) =>
-            account?.authInfo?.userId &&
-            account?.authInfo?.token
-        )
-      );
+      const loggedIn = await frame.evaluate(() => {
+        const raw = localStorage.getItem("e-accounts");
+        if (!raw) return false;
+
+        try {
+          const accounts = JSON.parse(raw);
+          return (
+            Array.isArray(accounts) &&
+            accounts.some(
+              (account) =>
+                account?.authInfo?.userId &&
+                account?.authInfo?.token
+            )
+          );
+        } catch {
+          return false;
+        }
+      });
+
+      if (loggedIn) return true;
     } catch {
-      return false;
+      // Ignore cross-origin or detached frames.
     }
-  });
+  }
+
+  return false;
 }
 
 async function launchBrowser(): Promise<Browser> {
-  console.log(
-    `Launching persistent Real browser at ${profileDir}`
-  );
+  console.log(`Launching persistent Real browser at ${profileDir}`);
 
   const browser = await puppeteer.launch({
     headless: true,
@@ -93,20 +101,14 @@ async function getBrowser(): Promise<Browser> {
 }
 
 async function getPage(browser: Browser): Promise<Page> {
-  if (sharedPage && !sharedPage.isClosed()) {
-    return sharedPage;
-  }
+  if (sharedPage && !sharedPage.isClosed()) return sharedPage;
 
   const pages = await browser.pages();
   sharedPage =
     pages.find((page) => !page.isClosed()) ||
     (await browser.newPage());
 
-  await sharedPage.setViewport({
-    width: 1280,
-    height: 900,
-  });
-
+  await sharedPage.setViewport({ width: 1280, height: 900 });
   await sharedPage.setUserAgent(
     process.env.REAL_BROWSER_USER_AGENT ||
       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
@@ -115,70 +117,70 @@ async function getPage(browser: Browser): Promise<Page> {
   return sharedPage;
 }
 
-async function clickLoginLink(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    const candidates = Array.from(
-      document.querySelectorAll(
-        "a, button, [role=button]"
-      )
-    ) as HTMLElement[];
+async function findFrameWithSelector(
+  page: Page,
+  selector: string,
+  timeoutMs = 30000
+): Promise<Frame> {
+  const deadline = Date.now() + timeoutMs;
 
-    const loginButton = candidates.find((element) =>
-      /^(log in|login|sign in)$/i.test(
-        String(
-          element.innerText ||
-            element.getAttribute("aria-label") ||
-            ""
-        ).trim()
-      )
-    );
+  while (Date.now() < deadline) {
+    for (const frame of page.frames()) {
+      try {
+        if (await frame.$(selector)) return frame;
+      } catch {
+        // Ignore frames that changed while checking.
+      }
+    }
 
-    loginButton?.click();
-  });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
+  throw new Error(`Could not find selector in any frame: ${selector}`);
 }
 
 async function clearAndType(
-  page: Page,
+  frame: Frame,
   selector: string,
   value: string
 ): Promise<void> {
-  await page.focus(selector);
-  await page.keyboard.down("Control");
-  await page.keyboard.press("A");
-  await page.keyboard.up("Control");
-  await page.keyboard.press("Backspace");
-  await page.type(selector, value, { delay: 25 });
+  const input = await frame.$(selector);
+  if (!input) throw new Error(`Input disappeared: ${selector}`);
+
+  await input.click();
+  await frame.evaluate(
+    (element) => {
+      const inputElement = element as HTMLInputElement;
+      inputElement.value = "";
+      inputElement.dispatchEvent(new Event("input", { bubbles: true }));
+    },
+    input
+  );
+  await input.type(value, { delay: 25 });
 }
 
-async function logLoginDebug(page: Page): Promise<void> {
+async function logLoginDebug(page: Page, label: string): Promise<void> {
   console.log("====================================");
-  console.log("REAL LOGIN DEBUG");
+  console.log(`REAL LOGIN DEBUG: ${label}`);
   console.log("====================================");
   console.log("Current URL:", page.url());
   console.log("Page Title:", await page.title());
+  console.log(
+    "Frames:",
+    page.frames().map((frame) => frame.url())
+  );
 
-  const bodyText = await page.evaluate(() => {
-    return document.body?.innerText || "";
-  });
-
-  console.log("----- PAGE TEXT START -----");
+  const bodyText = await page.evaluate(
+    () => document.body?.innerText || ""
+  );
   console.log(bodyText.substring(0, 5000));
-  console.log("----- PAGE TEXT END -----");
 
-  try {
-    await page.screenshot({
-      path: "/tmp/real-before-login.png",
+  await page
+    .screenshot({
+      path: `/tmp/real-login-${label}.png`,
       fullPage: true,
-    });
-    console.log(
-      "Saved screenshot: /tmp/real-before-login.png"
-    );
-  } catch (error) {
-    console.error(
-      "Could not save login debug screenshot:",
-      error
-    );
-  }
+    })
+    .catch(() => undefined);
 }
 
 async function loginToReal(page: Page): Promise<void> {
@@ -187,105 +189,51 @@ async function loginToReal(page: Page): Promise<void> {
 
   if (!login || !password) {
     throw new Error(
-      "Missing Real login variables. Add REAL_LOGIN_EMAIL (or REAL_LOGIN_USERNAME) and REAL_LOGIN_PASSWORD in Railway."
+      "Missing REAL_LOGIN_EMAIL (or REAL_LOGIN_USERNAME) and REAL_LOGIN_PASSWORD."
     );
   }
 
-  console.log(
-    "No saved Real browser session. Attempting automatic login."
-  );
-
-  await clickLoginLink(page);
+  console.log("No saved Real browser session. Attempting automatic login.");
 
   const loginSelector =
-    'input[type="email"], input[name="email"], input[name="username"], input[autocomplete="username"], input[type="text"]';
+    'input[type="email"], input[name="email"], input[name="username"], input[autocomplete="username"], input[placeholder*="email" i], input[placeholder*="username" i], input[placeholder*="phone" i], input[type="text"]';
   const passwordSelector =
     'input[type="password"], input[name="password"], input[autocomplete="current-password"]';
 
-  await logLoginDebug(page);
+  await logLoginDebug(page, "before-form");
 
+  let loginFrame: Frame;
   try {
-    await page.waitForSelector(loginSelector, {
-      timeout: 30000,
-    });
+    loginFrame = await findFrameWithSelector(page, loginSelector, 30000);
   } catch (error) {
-    console.error("Could not find login selector.");
-    console.error("Current URL:", page.url());
-    console.error("Page Title:", await page.title());
-
-    const bodyText = await page.evaluate(
-      () => document.body?.innerText || ""
-    );
-
-    console.error("----- LOGIN TIMEOUT PAGE TEXT START -----");
-    console.error(bodyText.substring(0, 5000));
-    console.error("----- LOGIN TIMEOUT PAGE TEXT END -----");
-
-    try {
-      await page.screenshot({
-        path: "/tmp/real-login-timeout.png",
-        fullPage: true,
-      });
-      console.error(
-        "Saved screenshot: /tmp/real-login-timeout.png"
-      );
-    } catch (screenshotError) {
-      console.error(
-        "Could not save login-timeout screenshot:",
-        screenshotError
-      );
-    }
-
+    await logLoginDebug(page, "login-field-timeout");
     throw error;
   }
 
-  await clearAndType(page, loginSelector, login);
+  await clearAndType(loginFrame, loginSelector, login);
 
+  let passwordFrame: Frame;
   try {
-    await page.waitForSelector(passwordSelector, {
-      timeout: 30000,
-    });
-  } catch (error) {
-    console.error("Could not find password selector.");
-    console.error("Current URL:", page.url());
-    console.error("Page Title:", await page.title());
-
-    const bodyText = await page.evaluate(
-      () => document.body?.innerText || ""
+    passwordFrame = await findFrameWithSelector(
+      page,
+      passwordSelector,
+      30000
     );
-
-    console.error("----- PASSWORD TIMEOUT PAGE TEXT START -----");
-    console.error(bodyText.substring(0, 5000));
-    console.error("----- PASSWORD TIMEOUT PAGE TEXT END -----");
-
-    try {
-      await page.screenshot({
-        path: "/tmp/real-password-timeout.png",
-        fullPage: true,
-      });
-      console.error(
-        "Saved screenshot: /tmp/real-password-timeout.png"
-      );
-    } catch (screenshotError) {
-      console.error(
-        "Could not save password-timeout screenshot:",
-        screenshotError
-      );
-    }
-
+  } catch (error) {
+    await logLoginDebug(page, "password-field-timeout");
     throw error;
   }
 
-  await clearAndType(page, passwordSelector, password);
+  await clearAndType(passwordFrame, passwordSelector, password);
 
-  const submitted = await page.evaluate(() => {
-    const buttons = Array.from(
+  const submitted = await passwordFrame.evaluate(() => {
+    const candidates = Array.from(
       document.querySelectorAll(
         'button, [role="button"], input[type="submit"]'
       )
     ) as HTMLElement[];
 
-    const submit = buttons.find((element) => {
+    const submit = candidates.find((element) => {
       const text = String(
         element.innerText ||
           element.getAttribute("value") ||
@@ -293,32 +241,30 @@ async function loginToReal(page: Page): Promise<void> {
           ""
       ).trim();
 
+      const disabled =
+        element.hasAttribute("disabled") ||
+        element.getAttribute("aria-disabled") === "true";
+
       return (
-        element.getAttribute("type") === "submit" ||
-        /^(log in|login|sign in|continue)$/i.test(text)
+        !disabled &&
+        (element.getAttribute("type") === "submit" ||
+          /^(log in|login|sign in|continue)$/i.test(text))
       );
     });
 
-    if (!submit) {
-      return false;
-    }
-
+    if (!submit) return false;
     submit.click();
     return true;
   });
 
   if (!submitted) {
-    throw new Error(
-      "Could not find the Real login submit button."
-    );
+    throw new Error("Could not find the Real login submit button.");
   }
 
   const deadline = Date.now() + 60000;
 
   while (Date.now() < deadline) {
-    await new Promise((resolve) =>
-      setTimeout(resolve, 1500)
-    );
+    await new Promise((resolve) => setTimeout(resolve, 1500));
 
     if (await hasSavedLogin(page)) {
       console.log(
@@ -342,14 +288,8 @@ async function loginToReal(page: Page): Promise<void> {
     }
   }
 
-  await page.screenshot({
-    path: "/tmp/real-login-failed.png",
-    fullPage: true,
-  });
-
-  throw new Error(
-    "Real browser login did not complete within 60 seconds."
-  );
+  await logLoginDebug(page, "login-failed");
+  throw new Error("Real browser login did not complete within 60 seconds.");
 }
 
 export async function openRealBrowser(): Promise<{
@@ -359,7 +299,7 @@ export async function openRealBrowser(): Promise<{
   const browser = await getBrowser();
   const page = await getPage(browser);
 
-  await page.goto("https://www.realapp.com", {
+  await page.goto(webAppUrl, {
     waitUntil: "networkidle2",
     timeout: 60000,
   });
@@ -367,13 +307,8 @@ export async function openRealBrowser(): Promise<{
   if (!(await hasSavedLogin(page))) {
     await loginToReal(page);
   } else {
-    console.log(
-      "Existing Real browser session found in Railway volume."
-    );
+    console.log("Existing Real browser session found in Railway volume.");
   }
 
-  return {
-    browser,
-    page,
-  };
+  return { browser, page };
 }
