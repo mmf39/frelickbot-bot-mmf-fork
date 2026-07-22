@@ -2,7 +2,15 @@ import "dotenv/config";
 
 import { RealClient } from "./core/RealClient";
 import { handleActivity } from "./handlers/ActivityHandler";
+import { openRealBrowser } from "./realBrowser";
 
+openRealBrowser()
+  .then(() => {
+    console.log("Real browser session initialized.");
+  })
+  .catch((error) => {
+    console.error("Real browser initialization failed:", error);
+  });
 const TRANSACTION_CHANNEL_ID = "2205570";
 const COMMISSIONER_USER_ID = "Y3KdBmLn";
 const TRANSACTION_GROUP_ID = "30139";
