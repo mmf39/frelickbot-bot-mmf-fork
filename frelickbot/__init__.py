@@ -1,0 +1,1 @@
+"""FrelickBot Python package."""
