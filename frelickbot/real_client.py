@@ -16,6 +16,14 @@ class RealClient:
         self.base_url = os.getenv("REAL_API_BASE_URL", "https://web.realapp.com")
         self.session: dict[str, Any] | None = None
         self.http = requests.Session()
+        self.http.headers.update(
+            {
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "real-version": os.getenv("REAL_VERSION", "34"),
+                "real-device-type": "desktop_web",
+            }
+        )
         print("✓ RealClient initialized")
 
     def load_session(self) -> None:
@@ -38,6 +46,9 @@ class RealClient:
             "No session found. Add REAL_SESSION_JSON in Railway or keep session.json locally."
         )
 
+    def get_session(self) -> dict[str, Any] | None:
+        return self.session
+
     def _require_session(self) -> dict[str, Any]:
         if not self.session:
             raise RuntimeError("No session has been loaded")
@@ -45,8 +56,8 @@ class RealClient:
 
     @staticmethod
     def generate_request_token() -> str:
-        salt = os.getenv("HASHIDS_SALT", "frelickbot")
-        min_length = int(os.getenv("HASHIDS_MIN_LENGTH", "12"))
+        salt = os.getenv("HASHIDS_SALT", "realwebapp")
+        min_length = int(os.getenv("HASHIDS_MIN_LENGTH", "16"))
         return Hashids(salt=salt, min_length=min_length).encode(int(time.time() * 1000))
 
     def _headers(self, include_turnstile: bool = False) -> dict[str, str]:
@@ -55,6 +66,8 @@ class RealClient:
             "real-auth-info": str(session["authInfo"]),
             "real-device-uuid": str(session["deviceUuid"]),
             "real-request-token": self.generate_request_token(),
+            "real-version": os.getenv("REAL_VERSION", "34"),
+            "real-device-type": "desktop_web",
             "origin": "https://www.realapp.com",
             "referer": "https://www.realapp.com/",
         }
@@ -162,9 +175,12 @@ class RealClient:
         resolved = str(channel_id or os.getenv("TRANSACTION_DM_CHANNEL_ID", "")).strip()
         if not resolved:
             raise ValueError("TRANSACTION_DM_CHANNEL_ID is missing.")
+        message = str(text or "").strip()
+        if not message:
+            raise ValueError("Cannot send an empty channel message.")
         return self.post_to_real(
             f"/messages/channels/{quote(resolved)}/messages",
-            {"text": str(text).strip(), "parentMessageId": None},
+            {"text": message, "parentMessageId": None},
         )
 
     def get_channel_messages(self, channel_id: str | int | None = None) -> Any:
