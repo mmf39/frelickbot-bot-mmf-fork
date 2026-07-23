@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import re
 import threading
@@ -11,6 +10,8 @@ from typing import Any
 import requests
 from dotenv import load_dotenv
 
+from frelickbot.command_handler import handle_activity_command
+from frelickbot.free_agency import handle_free_agency_reply
 from frelickbot.real_client import RealClient
 
 load_dotenv()
@@ -80,7 +81,9 @@ def update_live_scores(client: RealClient) -> None:
         return
     try:
         separator = "&" if "?" in url else "?"
-        data = requests.get(f"{url}{separator}action=getLiveScoreUsers", timeout=30).json()
+        response = requests.get(f"{url}{separator}action=getLiveScoreUsers", timeout=30)
+        response.raise_for_status()
+        data = response.json()
         users = data.get("users") or []
         scores = []
         for start in range(0, len(users), 5):
@@ -90,7 +93,7 @@ def update_live_scores(client: RealClient) -> None:
                 print(f"{user.get('player') or user.get('userId')}: {karma['val']} | Rank {karma['rank']}")
             if start + 5 < len(users):
                 time.sleep(0.5)
-        saved = requests.post(
+        saved_response = requests.post(
             url,
             json={
                 "action": "saveLiveScoresAndRefresh",
@@ -98,7 +101,9 @@ def update_live_scores(client: RealClient) -> None:
                 "scores": scores,
             },
             timeout=60,
-        ).json()
+        )
+        saved_response.raise_for_status()
+        saved = saved_response.json()
         if not saved.get("ok"):
             raise RuntimeError(saved.get("message") or "Live-score save failed")
         print(f"✅ Live scores updated. {saved.get('saved', 0)} scores saved.")
@@ -113,9 +118,10 @@ def live_score_loop(client: RealClient) -> None:
 
 
 def handle_activity(client: RealClient, activity: dict[str, Any]) -> None:
-    # Command handling is delegated to the Python command module during the remaining migration.
-    from frelickbot.command_handler import handle_activity_command
-
+    if activity.get("type") not in {"mention", "reply"}:
+        return
+    if activity.get("type") == "reply" and handle_free_agency_reply(client, activity):
+        return
     handle_activity_command(client, activity)
 
 
