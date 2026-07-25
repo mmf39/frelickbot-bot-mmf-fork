@@ -239,8 +239,7 @@ function findLineupForTeam(
   );
 }
 
-function formatLineup(lineup: SubmittedLineup): string {
-  const team = String(lineup.team || "Unknown Team").trim();
+function getOrderedPlayers(lineup: SubmittedLineup): string[] {
   const captain = normalizePlayer(lineup.captain);
   const players = (
     Array.isArray(lineup.lineup)
@@ -254,19 +253,28 @@ function formatLineup(lineup: SubmittedLineup): string {
 
   const orderedPlayers = [
     ...(captain ? [captain] : []),
-    ...players.filter((player) => player.toLowerCase() !== captain.toLowerCase()),
+    ...players.filter(
+      (player) => !captain || player.toLowerCase() !== captain.toLowerCase()
+    ),
   ];
 
-  const lines = [`**${team}**`];
+  return [...new Set(orderedPlayers.map((player) => player.toLowerCase()))]
+    .map((key) => orderedPlayers.find((player) => player.toLowerCase() === key) || "")
+    .filter(Boolean)
+    .slice(0, 6);
+}
 
-  if (!orderedPlayers.length) {
+function formatLineup(lineup: SubmittedLineup): string {
+  const team = String(lineup.team || "Unknown Team").trim();
+  const players = getOrderedPlayers(lineup);
+  const lines = [team];
+
+  if (!players.length) {
     lines.push("No lineup submitted.");
     return lines.join("\n");
   }
 
-  orderedPlayers.forEach((player, index) => {
-    lines.push(index === 0 && captain ? `⭐ ${player} (C)` : `• ${player}`);
-  });
+  lines.push(...players);
 
   return lines.join("\n");
 }
@@ -278,9 +286,18 @@ function formatMatchup(
 ): string {
   return [
     formatLineup(findLineupForTeam(lineups, awayTeam)),
-    "-------------",
+    "-----",
     formatLineup(findLineupForTeam(lineups, homeTeam)),
   ].join("\n");
+}
+
+function formatAllMatchups(
+  games: Array<{ away: string; home: string }>,
+  lineups: SubmittedLineup[]
+): string {
+  return games
+    .map((game) => formatMatchup(game.away, game.home, lineups))
+    .join("\n\n==========\n\n");
 }
 
 export async function runLineupLock(): Promise<void> {
@@ -349,41 +366,22 @@ export async function runLineupLock(): Promise<void> {
   });
   const lineups = getLatestLineups(extractLineups(lineupResponse));
 
-  const lineupThreadPost = await client.postToGroup("Lineups", groupId);
+  const allMatchupsMessage = [
+    `Lineups for ${today.monthDay}`,
+    "",
+    formatAllMatchups(games, lineups),
+  ].join("\n");
+
+  const lineupThreadPost = await client.postToGroup(allMatchupsMessage, groupId);
   const lineupThreadId = extractCommentId(lineupThreadPost);
 
   if (!lineupThreadId) {
     throw new Error(
-      `Real created the Lineups post, but its comment ID could not be found. Response: ${JSON.stringify(
+      `Real sent the lineup DM, but its message ID could not be found. Response: ${JSON.stringify(
         lineupThreadPost
       )}`
     );
   }
-
-  const remainingGames = games.filter(
-    (game) =>
-      !(
-        game.away.trim().toLowerCase() === gotdGame.away.trim().toLowerCase() &&
-        game.home.trim().toLowerCase() === gotdGame.home.trim().toLowerCase()
-      )
-  );
-
-  for (const game of remainingGames) {
-    await client.replyToComment(
-      lineupThreadId,
-      formatMatchup(game.away, game.home, lineups),
-      groupId
-    );
-
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-  }
-
-  const gotdMessage = [
-    "🏆 Game of the Day",
-    formatMatchup(gotdGame.away, gotdGame.home, lineups),
-  ].join("\n");
-
-  await client.postToGroup(gotdMessage, groupId);
 
   await callLineupApi("markLineupLockPosted", {
     date: today.isoDate,
@@ -394,7 +392,7 @@ export async function runLineupLock(): Promise<void> {
   });
 
   console.log(
-    `Posted Lineups thread first and GOTD second for ${today.isoDate}. GOTD: ${gotdGame.away} vs ${gotdGame.home}.`
+    `Sent ${games.length} active matchup${games.length === 1 ? "" : "s"} by DM for ${today.isoDate}. GOTD: ${gotdGame.away} vs ${gotdGame.home}.`
   );
 }
 
