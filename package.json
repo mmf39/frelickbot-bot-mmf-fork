@@ -8,7 +8,6 @@
     "dev": "tsx src/index.ts",
     "build": "tsc",
     "start": "node -r ./dist/puppeteerGroupPostPatch.js -r ./dist/lineupScheduler.js dist/index.js",
-    "gotd": "node -r ./dist/jobDmOnlyPatch.js dist/jobs/gotd.js",
     "lineup-lock": "node -r ./dist/jobDmOnlyPatch.js dist/jobs/lineupLock.js",
     "lineup-announcement": "node -r ./dist/jobDmOnlyPatch.js dist/jobs/lineupAnnouncement.js",
     "final-scores": "node -r ./dist/jobDmOnlyPatch.js dist/jobs/FinalScoreRecaps.js",
