@@ -186,8 +186,12 @@ function parseDisplayTime(display: unknown): { hour: number; minute: number } | 
     if (hour < 1 || hour > 12) return null;
     if (meridiem === "AM" && hour === 12) hour = 0;
     if (meridiem === "PM" && hour !== 12) hour += 12;
-  } else if (hour < 0 || hour > 23) {
-    return null;
+  } else {
+    if (hour < 0 || hour > 23) return null;
+
+    // Manual sheet entries such as "4:45" are intended as afternoon
+    // lineup deadlines. Explicit 24-hour values such as "16:45" still work.
+    if (hour >= 1 && hour <= 11) hour += 12;
   }
 
   return { hour, minute };
@@ -347,7 +351,13 @@ export async function runLineupLock(): Promise<void> {
   }
 
   if (now.hour * 60 + now.minute < lockTime.hour * 60 + lockTime.minute) {
-    console.log("Lineup lock time has not been reached yet.");
+    console.log(
+      `Lineup lock time has not been reached yet. Current: ${String(now.hour).padStart(2, "0")}:${String(
+        now.minute
+      ).padStart(2, "0")} ET. Lock: ${String(lockTime.hour).padStart(2, "0")}:${String(
+        lockTime.minute
+      ).padStart(2, "0")} ET.`
+    );
     return;
   }
 
@@ -367,8 +377,6 @@ export async function runLineupLock(): Promise<void> {
     formatAllMatchups(games, lineups, records),
   ].join("\n");
 
-  // Reserve the daily send before posting. If this fails, no DM is sent,
-  // preventing the scheduler from repeatedly sending the same matchups.
   await callLineupApi("markLineupDmSent", {
     date: now.isoDate,
     sentAt: new Date().toISOString(),
