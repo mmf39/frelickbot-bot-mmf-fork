@@ -1,6 +1,7 @@
 import "dotenv/config";
 
 import { RealClient } from "../core/RealClient";
+import { readSheet } from "../google/SheetsClient";
 import { getSchedule } from "../google/ScheduleService";
 
 type SubmittedLineup = {
@@ -9,6 +10,12 @@ type SubmittedLineup = {
   lineup?: string[];
   players?: string[];
   submittedAt?: string;
+};
+
+type TeamRecord = {
+  wins: string;
+  losses: string;
+  ties: string;
 };
 
 type DateParts = {
@@ -29,6 +36,31 @@ type LineupLockRecord = {
   status?: string;
 };
 
+const TEAM_EMOJIS: Record<string, string> = {
+  turkeys: "🦃",
+  gusnem: "💪",
+  thephantoms: "👻",
+  illegals: "🕶️",
+  pandas: "🐼",
+  thepandas: "🐼",
+  superkings: "👑",
+  dreamteam: "💭",
+  badbois: "😈",
+  scorpions: "🦂",
+  storm: "⛈️",
+};
+
+function normalizeTeamName(team: string): string {
+  return String(team || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function getTeamEmoji(team: string): string {
+  return TEAM_EMOJIS[normalizeTeamName(team)] || "🛡️";
+}
+
 function getEasternDateParts(date = new Date()): DateParts {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York",
@@ -46,13 +78,7 @@ function getEasternDateParts(date = new Date()): DateParts {
   const hour = Number(parts.find((part) => part.type === "hour")?.value);
   const minute = Number(parts.find((part) => part.type === "minute")?.value);
 
-  if (
-    !year ||
-    !month ||
-    !day ||
-    !Number.isInteger(hour) ||
-    !Number.isInteger(minute)
-  ) {
+  if (!year || !month || !day || !Number.isInteger(hour) || !Number.isInteger(minute)) {
     throw new Error("Could not determine the current Eastern date and time.");
   }
 
@@ -66,11 +92,7 @@ function getEasternDateParts(date = new Date()): DateParts {
 
 function getApiUrl(): string {
   const url = String(process.env.LINEUP_API_URL || "").trim();
-
-  if (!url) {
-    throw new Error("LINEUP_API_URL is missing in Railway.");
-  }
-
+  if (!url) throw new Error("LINEUP_API_URL is missing in Railway.");
   return url;
 }
 
@@ -80,9 +102,7 @@ async function callLineupApi(
 ): Promise<any> {
   const response = await fetch(getApiUrl(), {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-    },
+    headers: { "content-type": "application/json" },
     body: JSON.stringify({ action, ...body }),
   });
 
@@ -95,7 +115,6 @@ async function callLineupApi(
   }
 
   let parsed: any;
-
   try {
     parsed = JSON.parse(text);
   } catch {
@@ -110,41 +129,24 @@ async function callLineupApi(
 }
 
 function extractLineups(data: any): SubmittedLineup[] {
-  const candidates = [
-    data?.lineups,
-    data?.submittedLineups,
-    data?.results,
-    data?.data,
-    data,
-  ];
-
+  const candidates = [data?.lineups, data?.submittedLineups, data?.results, data?.data, data];
   for (const candidate of candidates) {
     if (Array.isArray(candidate)) return candidate;
   }
-
   return [];
 }
 
 function extractLockRecord(data: any): LineupLockRecord | null {
-  const candidates = [
-    data?.lock,
-    data?.lineupLock,
-    data?.result,
-    data?.data,
-    data,
-  ];
+  const candidates = [data?.lock, data?.lineupLock, data?.result, data?.data, data];
 
   for (const candidate of candidates) {
-    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
-      continue;
-    }
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
 
-    const hasTime =
+    if (
       candidate.hour !== undefined ||
       candidate.minute !== undefined ||
-      candidate.display !== undefined;
-
-    if (hasTime) {
+      candidate.display !== undefined
+    ) {
       return candidate as LineupLockRecord;
     }
   }
@@ -154,13 +156,8 @@ function extractLockRecord(data: any): LineupLockRecord | null {
 
 function isTruthy(value: unknown): boolean {
   if (value === true) return true;
-
-  const normalized = String(value ?? "")
-    .trim()
-    .toLowerCase();
-
   return ["true", "yes", "1", "sent", "posted", "complete", "completed"].includes(
-    normalized
+    String(value ?? "").trim().toLowerCase()
   );
 }
 
@@ -174,9 +171,7 @@ function wasLineupDmSent(lock: LineupLockRecord): boolean {
 }
 
 function parseDisplayTime(display: unknown): { hour: number; minute: number } | null {
-  const text = String(display || "").trim();
-  const match = text.match(/\b(\d{1,2}):(\d{2})\s*(AM|PM)?\b/i);
-
+  const match = String(display || "").trim().match(/\b(\d{1,2}):(\d{2})\s*(AM|PM)?\b/i);
   if (!match) return null;
 
   let hour = Number(match[1]);
@@ -198,10 +193,7 @@ function parseDisplayTime(display: unknown): { hour: number; minute: number } | 
   return { hour, minute };
 }
 
-function getLockHourMinute(lock: LineupLockRecord): {
-  hour: number;
-  minute: number;
-} | null {
+function getLockHourMinute(lock: LineupLockRecord): { hour: number; minute: number } | null {
   const hour = Number(lock.hour);
   const minute = Number(lock.minute);
 
@@ -219,18 +211,9 @@ function getLockHourMinute(lock: LineupLockRecord): {
   return parseDisplayTime(lock.display);
 }
 
-function hasReachedLockTime(
-  now: DateParts,
-  lock: { hour: number; minute: number }
-): boolean {
-  return now.hour * 60 + now.minute >= lock.hour * 60 + lock.minute;
-}
-
 function normalizePlayer(value: unknown): string {
   const player = String(value || "").trim();
-
   if (!player) return "";
-
   return player.startsWith("@") ? player : `@${player}`;
 }
 
@@ -238,12 +221,10 @@ function getLatestLineups(lineups: SubmittedLineup[]): SubmittedLineup[] {
   const latestByTeam = new Map<string, SubmittedLineup>();
 
   for (const lineup of lineups) {
-    const team = String(lineup.team || "").trim();
-    if (!team) continue;
+    const key = normalizeTeamName(String(lineup.team || ""));
+    if (!key) continue;
 
-    const key = team.toLowerCase();
     const existing = latestByTeam.get(key);
-
     if (!existing) {
       latestByTeam.set(key, lineup);
       continue;
@@ -251,26 +232,17 @@ function getLatestLineups(lineups: SubmittedLineup[]): SubmittedLineup[] {
 
     const currentTime = Date.parse(String(lineup.submittedAt || "")) || 0;
     const existingTime = Date.parse(String(existing.submittedAt || "")) || 0;
-
-    if (currentTime >= existingTime) {
-      latestByTeam.set(key, lineup);
-    }
+    if (currentTime >= existingTime) latestByTeam.set(key, lineup);
   }
 
   return [...latestByTeam.values()];
 }
 
-function findLineupForTeam(
-  lineups: SubmittedLineup[],
-  teamName: string
-): SubmittedLineup {
-  const target = teamName.trim().toLowerCase();
-
-  return (
-    lineups.find(
-      (lineup) => String(lineup.team || "").trim().toLowerCase() === target
-    ) || { team: teamName }
-  );
+function findLineupForTeam(lineups: SubmittedLineup[], teamName: string): SubmittedLineup {
+  const target = normalizeTeamName(teamName);
+  return lineups.find((lineup) => normalizeTeamName(String(lineup.team || "")) === target) || {
+    team: teamName,
+  };
 }
 
 function getOrderedPlayers(lineup: SubmittedLineup): string[] {
@@ -285,68 +257,78 @@ function getOrderedPlayers(lineup: SubmittedLineup): string[] {
     .map(normalizePlayer)
     .filter(Boolean);
 
-  const orderedPlayers = [
+  const ordered = [
     ...(captain ? [captain] : []),
-    ...players.filter(
-      (player) => !captain || player.toLowerCase() !== captain.toLowerCase()
-    ),
+    ...players.filter((player) => !captain || player.toLowerCase() !== captain.toLowerCase()),
   ];
 
-  const uniquePlayers: string[] = [];
-  const seen = new Set<string>();
-
-  for (const player of orderedPlayers) {
-    const key = player.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    uniquePlayers.push(player);
-  }
-
-  return uniquePlayers.slice(0, 6);
+  return [...new Map(ordered.map((player) => [player.toLowerCase(), player])).values()].slice(0, 6);
 }
 
-function formatLineup(lineup: SubmittedLineup): string {
-  const team = String(lineup.team || "Unknown Team").trim();
+async function getTeamRecords(): Promise<Map<string, TeamRecord>> {
+  const rows = await readSheet(process.env.GOOGLE_SPREADSHEET_ID!, "Standings!A:F");
+  const records = new Map<string, TeamRecord>();
+
+  for (const row of rows.slice(1)) {
+    const team = String(row[1] || "").trim();
+    if (!team) continue;
+
+    records.set(normalizeTeamName(team), {
+      wins: String(row[2] || "0"),
+      losses: String(row[3] || "0"),
+      ties: String(row[4] || "0"),
+    });
+  }
+
+  return records;
+}
+
+function formatRecord(team: string, records: Map<string, TeamRecord>): string {
+  const record = records.get(normalizeTeamName(team));
+  if (!record) return "0-0";
+  return record.ties && record.ties !== "0"
+    ? `${record.wins}-${record.losses}-${record.ties}`
+    : `${record.wins}-${record.losses}`;
+}
+
+function formatLineup(
+  lineup: SubmittedLineup,
+  teamName: string,
+  records: Map<string, TeamRecord>
+): string {
   const players = getOrderedPlayers(lineup);
-  const lines = [team];
+  const lines = [
+    `${getTeamEmoji(teamName)} ${teamName} (${formatRecord(teamName, records)})`,
+  ];
 
   if (!players.length) {
     lines.push("No lineup submitted.");
-    return lines.join("\n");
+  } else {
+    lines.push(...players);
   }
-
-  lines.push(...players);
 
   return lines.join("\n");
 }
 
-function formatMatchup(
-  awayTeam: string,
-  homeTeam: string,
-  lineups: SubmittedLineup[]
-): string {
-  return [
-    formatLineup(findLineupForTeam(lineups, awayTeam)),
-    "-----",
-    formatLineup(findLineupForTeam(lineups, homeTeam)),
-  ].join("\n");
-}
-
 function formatAllMatchups(
   games: Array<{ away: string; home: string }>,
-  lineups: SubmittedLineup[]
+  lineups: SubmittedLineup[],
+  records: Map<string, TeamRecord>
 ): string {
   return games
-    .map((game) => formatMatchup(game.away, game.home, lineups))
+    .map((game) =>
+      [
+        formatLineup(findLineupForTeam(lineups, game.away), game.away, records),
+        "-----",
+        formatLineup(findLineupForTeam(lineups, game.home), game.home, records),
+      ].join("\n")
+    )
     .join("\n\n==========\n\n");
 }
 
 export async function runLineupLock(): Promise<void> {
   const now = getEasternDateParts();
-
-  const lockResponse = await callLineupApi("getLineupLockTime", {
-    date: now.isoDate,
-  });
+  const lockResponse = await callLineupApi("getLineupLockTime", { date: now.isoDate });
   const lockRecord = extractLockRecord(lockResponse);
 
   if (!lockRecord) {
@@ -360,56 +342,44 @@ export async function runLineupLock(): Promise<void> {
   }
 
   const lockTime = getLockHourMinute(lockRecord);
-
   if (!lockTime) {
-    throw new Error(
-      `The saved lineup lock time for ${now.isoDate} is invalid: ${JSON.stringify(lockRecord)}`
-    );
+    throw new Error(`The saved lineup lock time for ${now.isoDate} is invalid.`);
   }
 
-  if (!hasReachedLockTime(now, lockTime)) {
-    console.log(
-      `Lineups do not lock until ${String(lockTime.hour).padStart(2, "0")}:${String(
-        lockTime.minute
-      ).padStart(2, "0")} Eastern. Current time is ${String(now.hour).padStart(
-        2,
-        "0"
-      )}:${String(now.minute).padStart(2, "0")}.`
-    );
+  if (now.hour * 60 + now.minute < lockTime.hour * 60 + lockTime.minute) {
+    console.log("Lineup lock time has not been reached yet.");
     return;
   }
 
-  const games = (await getSchedule()).filter(
-    (game) => game.date === now.monthDay
-  );
-
+  const games = (await getSchedule()).filter((game) => game.date === now.monthDay);
   if (!games.length) {
     console.log(`No scheduled matchups found for ${now.monthDay}.`);
     return;
   }
 
-  const lineupResponse = await callLineupApi("getSubmittedLineups", {
-    date: now.isoDate,
-  });
+  const lineupResponse = await callLineupApi("getSubmittedLineups", { date: now.isoDate });
   const lineups = getLatestLineups(extractLineups(lineupResponse));
+  const records = await getTeamRecords();
 
   const message = [
     `Lineups for ${now.monthDay}`,
     "",
-    formatAllMatchups(games, lineups),
+    formatAllMatchups(games, lineups, records),
   ].join("\n");
 
-  const client = new RealClient();
-  client.loadSession();
-  await client.postToGroup(message, Number(process.env.REAL_GROUP_ID || 0));
-
+  // Reserve the daily send before posting. If this fails, no DM is sent,
+  // preventing the scheduler from repeatedly sending the same matchups.
   await callLineupApi("markLineupDmSent", {
     date: now.isoDate,
     sentAt: new Date().toISOString(),
   });
 
+  const client = new RealClient();
+  client.loadSession();
+  await client.postToGroup(message, Number(process.env.REAL_GROUP_ID || 0));
+
   console.log(
-    `Sent ${games.length} active matchup${games.length === 1 ? "" : "s"} by DM for ${now.isoDate}.`
+    `Sent ${games.length} active matchup${games.length === 1 ? "" : "s"} one time for ${now.isoDate}.`
   );
 }
 
