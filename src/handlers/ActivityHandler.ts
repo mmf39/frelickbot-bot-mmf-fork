@@ -1,4 +1,8 @@
 import { handleCommand } from "../CommandHandler";
+import {
+  buildStatusMessage,
+  isStatusCommand,
+} from "../commands/StatusCommand";
 import { handleFreeAgencyReply } from "./FreeAgencyHandler";
 
 const COMMISSIONER_USER_ID = "Y3KdBmLn";
@@ -37,6 +41,72 @@ function getDmChannelIdForUser(userId: string): string {
   return "";
 }
 
+function extractText(value: any): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => extractText(item))
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  if (typeof value.plainText === "string") return value.plainText;
+  if (typeof value.text === "string") return value.text;
+
+  return extractText(
+    value.children ?? value.content ?? value.nodes ?? []
+  );
+}
+
+function getActivityText(activity: any): string {
+  return String(
+    activity.additionalInfo?.comment?.plainText ??
+      activity.comment?.plainText ??
+      activity.message?.plainText ??
+      activity.additionalInfo?.message?.plainText ??
+      extractText(activity.message?.content) ??
+      extractText(activity.additionalInfo?.message?.content) ??
+      extractText(activity.content) ??
+      ""
+  ).trim();
+}
+
+function getActivityUserId(activity: any): string {
+  return String(
+    activity.createdBy?.id ??
+      activity.createdByUserId ??
+      activity.authorUserId ??
+      activity.userId ??
+      activity.message?.userId ??
+      activity.additionalInfo?.message?.userId ??
+      ""
+  ).trim();
+}
+
+function getActivityChannelId(activity: any): string {
+  return String(
+    activity.channelId ??
+      activity.message?.channelId ??
+      activity.additionalInfo?.message?.channelId ??
+      activity.additionalInfo?.channelId ??
+      ""
+  ).trim();
+}
+
+function isDirectMessageActivity(activity: any): boolean {
+  const type = String(activity.type || "").toLowerCase();
+
+  return (
+    type === "message" ||
+    type === "directmessage" ||
+    type === "direct_message" ||
+    type === "dm" ||
+    Boolean(getActivityChannelId(activity))
+  );
+}
+
 export async function handleActivity(
   client: any,
   activity: any
@@ -44,20 +114,23 @@ export async function handleActivity(
   const allowedActivityTypes = [
     "mention",
     "reply",
+    "message",
+    "directmessage",
+    "direct_message",
+    "dm",
   ];
 
-  if (!allowedActivityTypes.includes(activity.type)) {
+  const activityType = String(activity.type || "").toLowerCase();
+
+  if (
+    !allowedActivityTypes.includes(activityType) &&
+    !isDirectMessageActivity(activity)
+  ) {
     return;
   }
 
   const session = client.getSession();
-
-  const activityUserId = String(
-    activity.createdBy?.id ??
-    activity.createdByUserId ??
-    activity.authorUserId ??
-    ""
-  ).trim();
+  const activityUserId = getActivityUserId(activity);
 
   if (
     activityUserId &&
@@ -66,7 +139,7 @@ export async function handleActivity(
     return;
   }
 
-  if (activity.type === "reply") {
+  if (activityType === "reply") {
     const handled = await handleFreeAgencyReply(
       client,
       activity
@@ -77,12 +150,20 @@ export async function handleActivity(
     }
   }
 
-  const dmChannelId = getDmChannelIdForUser(activityUserId);
+  const directChannelId = getActivityChannelId(activity);
+  const dmChannelId =
+    directChannelId || getDmChannelIdForUser(activityUserId);
 
   if (!dmChannelId) {
     console.error(
       `No DM channel is configured for command caller ${activityUserId || "unknown"}. Add it to REAL_DM_CHANNELS_JSON.`
     );
+    return;
+  }
+
+  const commandText = getActivityText(activity);
+
+  if (!/\$[a-z0-9_-]+/i.test(commandText)) {
     return;
   }
 
@@ -103,7 +184,45 @@ export async function handleActivity(
   };
 
   try {
-    await handleCommand(client, activity);
+    if (isStatusCommand(commandText)) {
+      const statusMessage = await buildStatusMessage();
+      await client.sendChannelMessage(statusMessage, dmChannelId);
+      return;
+    }
+
+    const normalizedActivity = {
+      ...activity,
+      commentId:
+        activity.commentId ??
+        activity.message?.id ??
+        activity.id ??
+        "dm-command",
+      authorUserId: activityUserId,
+      additionalInfo: {
+        ...(activity.additionalInfo ?? {}),
+        comment: {
+          ...(activity.additionalInfo?.comment ?? {}),
+          plainText: commandText,
+          authorUserId: activityUserId,
+        },
+      },
+      comment: {
+        ...(activity.comment ?? {}),
+        plainText: commandText,
+        authorUserId: activityUserId,
+      },
+    };
+
+    await handleCommand(client, normalizedActivity);
+  } catch (error) {
+    console.error("Command handling failed:", error);
+
+    await client.sendChannelMessage(
+      error instanceof Error
+        ? `Command failed: ${error.message}`
+        : "Command failed.",
+      dmChannelId
+    );
   } finally {
     client.replyToComment = originalReplyToComment;
   }
