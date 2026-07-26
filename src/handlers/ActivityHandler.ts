@@ -13,7 +13,6 @@ const COMMISSIONER_USER_ID = "Y3KdBmLn";
 
 function getDmChannelIdForUser(userId: string): string {
   const cleanedUserId = String(userId || "").trim();
-
   if (!cleanedUserId) return "";
 
   const configuredMap = process.env.REAL_DM_CHANNELS_JSON;
@@ -164,6 +163,14 @@ function isDirectMessageActivity(activity: any): boolean {
   );
 }
 
+function addDmLineupReminder(text: string): string {
+  if (!/^lineup submission failed\b/i.test(String(text || "").trim())) {
+    return text;
+  }
+
+  return `${text}\n\n🚨 DM LINEUP REMINDER 🚨\nIf you are DMing the bot, DO NOT @-mention the players. Type each username without the @ symbol.\n\nExample:\njordancarter C\nasterial\nnyc`;
+}
+
 export async function handleActivity(client: any, activity: any): Promise<void> {
   const allowedActivityTypes = [
     "mention",
@@ -220,7 +227,8 @@ export async function handleActivity(client: any, activity: any): Promise<void> 
     console.log(
       `Sending private command response to ${activityUserId} in channel ${dmChannelId}.`
     );
-    return client.sendChannelMessage(text, dmChannelId);
+
+    return client.sendChannelMessage(addDmLineupReminder(text), dmChannelId);
   };
 
   try {
