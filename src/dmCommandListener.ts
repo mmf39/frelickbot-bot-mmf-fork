@@ -126,11 +126,16 @@ function getMessageUserId(message: any): string {
   ).trim();
 }
 
+function getBotUserId(client: RealClient): string {
+  const authInfo = String(client.getSession()?.authInfo ?? "").trim();
+  return authInfo.split("!")[0]?.trim() ?? "";
+}
+
 async function startDmCommandListener(): Promise<void> {
   const client = new RealClient();
   client.loadSession();
 
-  const botUserId = String(client.getSession()?.userId ?? "").trim();
+  const botUserId = getBotUserId(client);
   const seenMessageIdsByChannel = new Map<string, Set<string>>();
 
   console.log("Starting direct-message command listener.");
