@@ -5,6 +5,7 @@ const SPREADSHEET_ID =
 
 export interface TeamRoster {
   team: string;
+  gm: string;
   players: string[];
 }
 
@@ -14,6 +15,15 @@ function cleanCell(value: unknown): string {
 
 function isGmRow(value: string): boolean {
   return /^gm\s*=/i.test(value);
+}
+
+function parseGmUsername(value: string): string {
+  const username = cleanCell(value)
+    .replace(/^gm\s*=\s*/i, "")
+    .replace(/^@/, "")
+    .trim();
+
+  return username ? `@${username}` : "";
 }
 
 function isPlayer(value: string): boolean {
@@ -37,10 +47,6 @@ function isTeamHeader(
     return false;
   }
 
-  /*
-   * A team name is followed by a row such as:
-   * GM = bostonsportsfan11
-   */
   return isGmRow(nextCell);
 }
 
@@ -89,13 +95,12 @@ export async function getRosters(): Promise<
         rows[rowIndex]?.[columnIndex]
       );
 
+      const gm = parseGmUsername(
+        cleanCell(rows[rowIndex + 1]?.[columnIndex])
+      );
+
       const players: string[] = [];
 
-      /*
-       * Skip:
-       * - team-name row
-       * - GM row
-       */
       rowIndex += 2;
 
       while (rowIndex < rows.length) {
@@ -122,6 +127,7 @@ export async function getRosters(): Promise<
 
       rosters.push({
         team,
+        gm,
         players,
       });
     }
