@@ -4,6 +4,14 @@ type ScheduleGame = Awaited<ReturnType<typeof getSchedule>>[number];
 
 type SubmittedLineup = {
   team?: string;
+  submittedTeam?: string;
+  submitedTeam?: string;
+  "Submited team"?: string;
+  "Submitted team"?: string;
+  status?: string;
+  used?: string;
+  usedNot?: string;
+  "Used/Not"?: string;
 };
 
 type LineupLockTime = {
@@ -134,19 +142,39 @@ function gameIncludesTeam(game: ScheduleGame, team: string): boolean {
   );
 }
 
+function rowsToObjects(rows: any[]): SubmittedLineup[] {
+  if (!rows.length || !Array.isArray(rows[0])) return rows as SubmittedLineup[];
+
+  const headers = rows[0].map((header: unknown) => String(header ?? "").trim());
+
+  return rows.slice(1).map((row: any[]) => {
+    const result: Record<string, unknown> = {};
+
+    headers.forEach((header, index) => {
+      result[header] = row[index];
+    });
+
+    return result as SubmittedLineup;
+  });
+}
+
 function extractSubmittedLineups(value: any): SubmittedLineup[] {
   const candidates = [
     value?.lineups,
     value?.submittedLineups,
     value?.queuedLineups,
     value?.queue,
+    value?.rows,
+    value?.values,
     value?.results,
     value?.data,
     value,
   ];
 
   for (const candidate of candidates) {
-    if (Array.isArray(candidate)) return candidate;
+    if (Array.isArray(candidate)) return rowsToObjects(candidate);
+    if (Array.isArray(candidate?.values)) return rowsToObjects(candidate.values);
+    if (Array.isArray(candidate?.rows)) return rowsToObjects(candidate.rows);
   }
 
   return [];
@@ -183,9 +211,40 @@ async function callLineupApi(body: Record<string, unknown>): Promise<any> {
   return result;
 }
 
-function addLineupTeams(target: Set<string>, value: any): void {
+function getLineupTeam(lineup: SubmittedLineup): string {
+  return String(
+    lineup.team ??
+      lineup.submittedTeam ??
+      lineup.submitedTeam ??
+      lineup["Submitted team"] ??
+      lineup["Submited team"] ??
+      ""
+  ).trim();
+}
+
+function isQueuedLineup(lineup: SubmittedLineup): boolean {
+  const status = String(
+    lineup.status ??
+      lineup.used ??
+      lineup.usedNot ??
+      lineup["Used/Not"] ??
+      ""
+  )
+    .trim()
+    .toLowerCase();
+
+  return !status || status === "queued" || status === "not used";
+}
+
+function addLineupTeams(
+  target: Set<string>,
+  value: any,
+  queuedOnly = false
+): void {
   for (const lineup of extractSubmittedLineups(value)) {
-    const teamKey = normalizeTeamName(String(lineup.team || ""));
+    if (queuedOnly && !isQueuedLineup(lineup)) continue;
+
+    const teamKey = normalizeTeamName(getLineupTeam(lineup));
     if (teamKey) target.add(teamKey);
   }
 }
@@ -207,7 +266,7 @@ async function getSubmittedTeamKeys(date: string): Promise<Set<string>> {
       date,
     });
 
-    addLineupTeams(teamKeys, queuedResult);
+    addLineupTeams(teamKeys, queuedResult, true);
   } catch (error) {
     console.warn(
       "Queued lineup lookup was unavailable; using the submitted lineup response only:",
