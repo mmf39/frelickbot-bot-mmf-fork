@@ -40,16 +40,16 @@ type EasternNow = {
  *   turkeys: "2205570",
  */
 const TEAM_GM_CHANNELS: Record<string, string> = {
-  turkeys: "",
-  gusnem: "",
-  thephantoms: "",
-  illegals: "",
-  pandas: "",
-  superkings: "",
-  dreamteam: "",
-  badbois: "",
-  scorpions: "",
-  storm: "",
+  turkeys: "7519070",
+  gusnem: "7368245",
+  thephantoms: "7510723",
+  illegals: "7519076",
+  thepandas: "7519078",
+  superkings: "7402013",
+  dreamteam: "7521466",
+  badbois: "7244816",
+  scorpions: "7202447",
+  storm: "7509467",
 };
 
 const TEAM_EMOJIS: Record<string, string> = {
@@ -57,7 +57,7 @@ const TEAM_EMOJIS: Record<string, string> = {
   gusnem: "💪",
   thephantoms: "👻",
   illegals: "🕶️",
-  pandas: "🐼",
+  thepandas: "🐼",
   thepandas: "🐼",
   superkings: "👑",
   dreamteam: "💭",
