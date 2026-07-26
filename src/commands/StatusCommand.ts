@@ -167,17 +167,17 @@ export async function buildStatusMessage(userId = ""): Promise<string> {
   const todayTime = today.getTime();
   const gmTeam = GM_TEAM_BY_USER_ID[String(userId || "").trim()] || "";
 
-  let upcoming = schedule
-    .map((game) => ({
-      game,
-      date: parseScheduleDate(String(game.date ?? "")),
-    }))
-    .filter(
-      (item): item is { game: ScheduleGame; date: Date } =>
-        Boolean(item.date) &&
-        item.date.getTime() >= todayTime &&
-        !isCompleted(item.game)
-    );
+  let upcoming: Array<{ game: ScheduleGame; date: Date }> = schedule.flatMap(
+    (game) => {
+      const date = parseScheduleDate(String(game.date ?? ""));
+
+      if (!date || date.getTime() < todayTime || isCompleted(game)) {
+        return [];
+      }
+
+      return [{ game, date }];
+    }
+  );
 
   if (gmTeam) {
     upcoming = upcoming.filter(({ game }) => gameIncludesTeam(game, gmTeam));
