@@ -6,7 +6,7 @@ function normalizePlayerName(value: string): string {
     .trim()
     .toLowerCase()
     .replace(/^@/, "")
-    .replace(/[^a-z0-9]/g, "");
+    .replace(/[^\p{L}\p{N}\p{Extended_Pictographic}]/gu, "");
 }
 
 function displayPlayerName(value: string): string {
@@ -39,7 +39,7 @@ export async function buildWhoHasMessage(
       "Please enter a player name.",
       "",
       "Example:",
-      "$whohas Shohei Ohtani",
+      "$whohas jordancarter",
     ].join("\n");
   }
 
