@@ -47,6 +47,7 @@ export async function buildWhoHasMessage(
   const rosteredPlayers = rosters.flatMap((roster) =>
     roster.players.map((player) => ({
       team: roster.team,
+      gm: roster.gm,
       player,
       key: normalizePlayerName(player),
     }))
@@ -106,6 +107,7 @@ export async function buildWhoHasMessage(
     `🔍 ${displayPlayerName(found.player)}`,
     "",
     `💪 Team: ${found.team}`,
+    `👤 GM: ${found.gm || "N/A"}`,
     `💰 Cap Hit: ${contract ? formatNumber(contract.currentCapHit) : "N/A"}`,
     `📈 Total Rax: ${contract ? formatNumber(contract.totalRax) : "N/A"}`,
     `📄 Years Left: ${contract ? formatNumber(contract.yearsLeft) : "N/A"}`,
