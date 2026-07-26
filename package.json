@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "tsx src/index.ts",
     "build": "tsc",
-    "start": "node -r ./dist/puppeteerGroupPostPatch.js -r ./dist/lineupScheduler.js dist/index.js",
+    "start": "node -r ./dist/puppeteerGroupPostPatch.js -r ./dist/lineupScheduler.js -r ./dist/dmCommandListener.js dist/index.js",
     "lineup-lock": "node -r ./dist/jobDmOnlyPatch.js dist/jobs/lineupLock.js",
     "lineup-announcement": "node -r ./dist/jobDmOnlyPatch.js dist/jobs/lineupAnnouncement.js",
     "final-scores": "node -r ./dist/jobDmOnlyPatch.js dist/jobs/FinalScoreRecaps.js",
