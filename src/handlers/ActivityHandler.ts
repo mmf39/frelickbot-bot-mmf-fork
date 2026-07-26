@@ -1,4 +1,4 @@
-import { handleCommand } from "../CommandHandler";
+import { handleCommand } from "../PatchedCommandHandler";
 import {
   buildStatusMessage,
   isStatusCommand,
