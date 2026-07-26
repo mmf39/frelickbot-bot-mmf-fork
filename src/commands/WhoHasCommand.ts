@@ -5,12 +5,12 @@ function normalizePlayerName(value: string): string {
   return String(value || "")
     .trim()
     .toLowerCase()
-    .replace(/^@/, "")
+    .replace(/^@+/, "")
     .replace(/[^\p{L}\p{N}\p{Extended_Pictographic}]/gu, "");
 }
 
 function displayPlayerName(value: string): string {
-  return String(value || "").trim().replace(/^@/, "");
+  return String(value || "").trim().replace(/^@+/, "");
 }
 
 function formatNumber(value: number): string {
