@@ -48,7 +48,7 @@ const credentials = loadGoogleCredentials();
 const auth = new google.auth.GoogleAuth({
   credentials,
   scopes: [
-    "https://www.googleapis.com/auth/spreadsheets.readonly",
+    "https://www.googleapis.com/auth/spreadsheets",
   ],
 });
 
@@ -76,4 +76,82 @@ export async function readSheet(
   return (
     response.data.values as string[][] | undefined
   ) ?? [];
+}
+
+export async function appendSheetRows(
+  spreadsheetId: string,
+  range: string,
+  rows: Array<Array<string | number | boolean>>
+): Promise<void> {
+  if (!spreadsheetId) {
+    throw new Error(
+      `Spreadsheet ID is missing for range "${range}"`
+    );
+  }
+
+  if (!rows.length) return;
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range,
+    valueInputOption: "USER_ENTERED",
+    insertDataOption: "INSERT_ROWS",
+    requestBody: {
+      values: rows,
+    },
+  });
+}
+
+export async function ensureSheetExists(
+  spreadsheetId: string,
+  sheetName: string,
+  headers: string[] = []
+): Promise<void> {
+  if (!spreadsheetId) {
+    throw new Error("GOOGLE_SPREADSHEET_ID is missing.");
+  }
+
+  const metadata = await sheets.spreadsheets.get({
+    spreadsheetId,
+    fields: "sheets.properties.title",
+  });
+
+  const exists = metadata.data.sheets?.some(
+    (sheet) => sheet.properties?.title === sheetName
+  );
+
+  if (!exists) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [
+          {
+            addSheet: {
+              properties: {
+                title: sheetName,
+              },
+            },
+          },
+        ],
+      },
+    });
+  }
+
+  if (!headers.length) return;
+
+  const existing = await readSheet(
+    spreadsheetId,
+    `'${sheetName}'!A1:${String.fromCharCode(64 + headers.length)}1`
+  );
+
+  if (existing.length === 0 || existing[0].length === 0) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `'${sheetName}'!A1`,
+      valueInputOption: "RAW",
+      requestBody: {
+        values: [headers],
+      },
+    });
+  }
 }
