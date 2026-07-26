@@ -10,7 +10,7 @@ function normalizePlayerName(value: string): string {
 }
 
 function displayPlayerName(value: string): string {
-  return String(value || "").trim().replace(/^@+/, "");
+  return String(value || "").trim().replace(/^@/, "");
 }
 
 function formatNumber(value: number): string {
