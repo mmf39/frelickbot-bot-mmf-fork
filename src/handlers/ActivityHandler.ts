@@ -163,7 +163,7 @@ export async function handleActivity(
 
   const commandText = getActivityText(activity);
 
-  if (!/\$[a-z0-9_-]+/i.test(commandText)) {
+  if (!/[$@][a-z0-9_-]+/i.test(commandText)) {
     return;
   }
 
@@ -185,7 +185,7 @@ export async function handleActivity(
 
   try {
     if (isStatusCommand(commandText)) {
-      const statusMessage = await buildStatusMessage();
+      const statusMessage = await buildStatusMessage(activityUserId);
       await client.sendChannelMessage(statusMessage, dmChannelId);
       return;
     }
