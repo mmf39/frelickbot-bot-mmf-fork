@@ -53,11 +53,35 @@ function extractText(value: any): string {
     return value
       .map((item) => extractText(item))
       .filter(Boolean)
-      .join("\n");
+      .join(" ");
   }
 
-  if (typeof value.plainText === "string") return value.plainText;
-  if (typeof value.text === "string") return value.text;
+  const type = String(value.type ?? value.nodeType ?? "").toLowerCase();
+  const username = String(
+    value.username ??
+      value.userName ??
+      value.handle ??
+      value.user?.username ??
+      value.user?.userName ??
+      ""
+  ).trim();
+
+  if (
+    username &&
+    (type.includes("mention") ||
+      value.userId ||
+      value.user?.id)
+  ) {
+    return username.startsWith("@") ? username : `@${username}`;
+  }
+
+  if (typeof value.plainText === "string" && value.plainText.trim()) {
+    return value.plainText;
+  }
+
+  if (typeof value.text === "string" && value.text.trim()) {
+    return value.text;
+  }
 
   return extractText(
     value.children ?? value.content ?? value.nodes ?? []
@@ -65,16 +89,27 @@ function extractText(value: any): string {
 }
 
 function getActivityText(activity: any): string {
-  return String(
-    activity.additionalInfo?.comment?.plainText ??
-      activity.comment?.plainText ??
-      activity.message?.plainText ??
-      activity.additionalInfo?.message?.plainText ??
-      extractText(activity.message?.content) ??
-      extractText(activity.additionalInfo?.message?.content) ??
-      extractText(activity.content) ??
-      ""
-  ).trim();
+  const candidates = [
+    activity.additionalInfo?.comment?.plainText,
+    activity.comment?.plainText,
+    activity.message?.plainText,
+    activity.additionalInfo?.message?.plainText,
+    extractText(activity.additionalInfo?.comment?.content),
+    extractText(activity.comment?.content),
+    extractText(activity.message?.content),
+    extractText(activity.additionalInfo?.message?.content),
+    extractText(activity.content),
+  ]
+    .map((value) => String(value ?? "").replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+
+  if (candidates.length === 0) {
+    return "";
+  }
+
+  return candidates.reduce((best, candidate) =>
+    candidate.length > best.length ? candidate : best
+  );
 }
 
 function getActivityUserId(activity: any): string {
