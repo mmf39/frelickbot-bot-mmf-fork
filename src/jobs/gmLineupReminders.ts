@@ -307,7 +307,19 @@ async function sendNinePmMessages(
   records: Map<string, string>,
   sentKeys: Set<string>
 ): Promise<void> {
-  if (now.hour !== 21) return;
+  const isTemporaryTestTime =
+  now.isoDate === "2026-07-25" &&
+  now.hour === 23 &&
+  now.minute >= 24 &&
+  now.minute < 30;
+
+const isNormalNinePmTime =
+  now.isoDate !== "2026-07-25" &&
+  now.hour === 21;
+
+if (!isTemporaryTestTime && !isNormalNinePmTime) {
+  return;
+}
 
   const tomorrow = addEasternDays(now.isoDate, 1);
   const games = (await getScheduleForDate(tomorrow.monthDay)) as LeagueGame[];
