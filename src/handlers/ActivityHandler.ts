@@ -14,9 +14,7 @@ const COMMISSIONER_USER_ID = "Y3KdBmLn";
 function getDmChannelIdForUser(userId: string): string {
   const cleanedUserId = String(userId || "").trim();
 
-  if (!cleanedUserId) {
-    return "";
-  }
+  if (!cleanedUserId) return "";
 
   const configuredMap = process.env.REAL_DM_CHANNELS_JSON;
 
@@ -24,15 +22,9 @@ function getDmChannelIdForUser(userId: string): string {
     try {
       const parsed = JSON.parse(configuredMap) as Record<string, unknown>;
       const mappedChannelId = String(parsed[cleanedUserId] ?? "").trim();
-
-      if (mappedChannelId) {
-        return mappedChannelId;
-      }
+      if (mappedChannelId) return mappedChannelId;
     } catch (error) {
-      console.error(
-        "REAL_DM_CHANNELS_JSON contains invalid JSON:",
-        error
-      );
+      console.error("REAL_DM_CHANNELS_JSON contains invalid JSON:", error);
     }
   }
 
@@ -68,9 +60,7 @@ function extractText(value: any): string {
 
   if (
     username &&
-    (type.includes("mention") ||
-      value.userId ||
-      value.user?.id)
+    (type.includes("mention") || value.userId || value.user?.id)
   ) {
     return username.startsWith("@") ? username : `@${username}`;
   }
@@ -83,9 +73,7 @@ function extractText(value: any): string {
     return value.text;
   }
 
-  return extractText(
-    value.children ?? value.content ?? value.nodes ?? []
-  );
+  return extractText(value.children ?? value.content ?? value.nodes ?? []);
 }
 
 function cleanActivityCandidate(value: unknown): string {
@@ -96,6 +84,28 @@ function cleanActivityCandidate(value: unknown): string {
     .filter(Boolean)
     .join("\n")
     .trim();
+}
+
+function normalizeFragmentedCommandText(value: string): string {
+  const lines = cleanActivityCandidate(value).split("\n");
+  const commandLineIndex = lines.findIndex((line) => /\$[a-z0-9_-]+/i.test(line));
+
+  if (commandLineIndex < 0) return cleanActivityCandidate(value);
+
+  const normalized: string[] = [];
+
+  for (const line of lines.slice(commandLineIndex)) {
+    if (/^@rsklbot$/i.test(line)) continue;
+
+    if (/^(?:c|\(c\)|captain)$/i.test(line) && normalized.length > 0) {
+      normalized[normalized.length - 1] = `${normalized[normalized.length - 1]} ${line}`;
+      continue;
+    }
+
+    normalized.push(line);
+  }
+
+  return normalized.join("\n").trim();
 }
 
 function getActivityText(activity: any): string {
@@ -110,12 +120,10 @@ function getActivityText(activity: any): string {
     extractText(activity.additionalInfo?.message?.content),
     extractText(activity.content),
   ]
-    .map(cleanActivityCandidate)
+    .map((value) => normalizeFragmentedCommandText(String(value ?? "")))
     .filter(Boolean);
 
-  if (candidates.length === 0) {
-    return "";
-  }
+  if (candidates.length === 0) return "";
 
   return candidates.reduce((best, candidate) =>
     candidate.length > best.length ? candidate : best
@@ -156,10 +164,7 @@ function isDirectMessageActivity(activity: any): boolean {
   );
 }
 
-export async function handleActivity(
-  client: any,
-  activity: any
-): Promise<void> {
+export async function handleActivity(client: any, activity: any): Promise<void> {
   const allowedActivityTypes = [
     "mention",
     "reply",
@@ -183,23 +188,11 @@ export async function handleActivity(
   const sessionAuthInfo = String(session?.authInfo ?? "");
   const botUserId = sessionAuthInfo.split("!")[0]?.trim() || "";
 
-  if (
-    activityUserId &&
-    botUserId &&
-    activityUserId === botUserId
-  ) {
-    return;
-  }
+  if (activityUserId && botUserId && activityUserId === botUserId) return;
 
   if (activityType === "reply") {
-    const handled = await handleFreeAgencyReply(
-      client,
-      activity
-    );
-
-    if (handled) {
-      return;
-    }
+    const handled = await handleFreeAgencyReply(client, activity);
+    if (handled) return;
   }
 
   const directChannelId = getActivityChannelId(activity);
@@ -214,10 +207,9 @@ export async function handleActivity(
   }
 
   const commandText = getActivityText(activity);
+  console.log("Normalized command text:", JSON.stringify(commandText));
 
-  if (!/[$@][a-z0-9_-]+/i.test(commandText)) {
-    return;
-  }
+  if (!/[$@][a-z0-9_-]+/i.test(commandText)) return;
 
   const originalReplyToComment = client.replyToComment.bind(client);
 
@@ -228,11 +220,7 @@ export async function handleActivity(
     console.log(
       `Sending private command response to ${activityUserId} in channel ${dmChannelId}.`
     );
-
-    return client.sendChannelMessage(
-      text,
-      dmChannelId
-    );
+    return client.sendChannelMessage(text, dmChannelId);
   };
 
   try {
