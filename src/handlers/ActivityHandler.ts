@@ -53,7 +53,7 @@ function extractText(value: any): string {
     return value
       .map((item) => extractText(item))
       .filter(Boolean)
-      .join(" ");
+      .join("\n");
   }
 
   const type = String(value.type ?? value.nodeType ?? "").toLowerCase();
@@ -88,6 +88,16 @@ function extractText(value: any): string {
   );
 }
 
+function cleanActivityCandidate(value: unknown): string {
+  return String(value ?? "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/[\t ]+/g, " ").trim())
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
 function getActivityText(activity: any): string {
   const candidates = [
     activity.additionalInfo?.comment?.plainText,
@@ -100,7 +110,7 @@ function getActivityText(activity: any): string {
     extractText(activity.additionalInfo?.message?.content),
     extractText(activity.content),
   ]
-    .map((value) => String(value ?? "").replace(/\s+/g, " ").trim())
+    .map(cleanActivityCandidate)
     .filter(Boolean);
 
   if (candidates.length === 0) {
