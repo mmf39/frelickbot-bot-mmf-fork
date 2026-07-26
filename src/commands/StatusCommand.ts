@@ -6,6 +6,21 @@ type SubmittedLineup = {
   team?: string;
 };
 
+const GM_TEAM_BY_USER_ID: Record<string, string> = {
+  "4JZo9wZv": "Turkeys",
+  R3XDLZz3: "Turkeys",
+  rner1dZJ: "Gus N Em",
+  "5nxBPRyv": "The Phantoms",
+  "5nxPZYQn": "Illegals",
+  jvbN8dbv: "The Pandas",
+  "7JkKrbKJ": "Super Kings",
+  dvd60P4n: "Dream Team",
+  qnBmomW3: "Dream Team",
+  xnr4NGkv: "Bad Bois",
+  eJ9dx9bn: "Scorpions",
+  mvg4OPG3: "Storm",
+};
+
 function normalizeTeamName(value: string): string {
   return String(value || "")
     .trim()
@@ -82,6 +97,14 @@ function isCompleted(game: ScheduleGame): boolean {
   return status === "complete" || status === "completed";
 }
 
+function gameIncludesTeam(game: ScheduleGame, team: string): boolean {
+  const teamKey = normalizeTeamName(team);
+  return (
+    normalizeTeamName(game.away) === teamKey ||
+    normalizeTeamName(game.home) === teamKey
+  );
+}
+
 function extractSubmittedLineups(value: any): SubmittedLineup[] {
   const candidates = [
     value?.lineups,
@@ -135,15 +158,16 @@ async function getSubmittedTeamKeys(date: string): Promise<Set<string>> {
 }
 
 export function isStatusCommand(text: string): boolean {
-  return /(?:^|\s)\$status(?:\s|$)/i.test(String(text || ""));
+  return /(?:^|\s)[$@]status(?:\s|$)/i.test(String(text || ""));
 }
 
-export async function buildStatusMessage(): Promise<string> {
+export async function buildStatusMessage(userId = ""): Promise<string> {
   const schedule = await getSchedule();
   const today = getEasternToday();
   const todayTime = today.getTime();
+  const gmTeam = GM_TEAM_BY_USER_ID[String(userId || "").trim()] || "";
 
-  const upcoming = schedule
+  let upcoming = schedule
     .map((game) => ({
       game,
       date: parseScheduleDate(String(game.date ?? "")),
@@ -153,11 +177,18 @@ export async function buildStatusMessage(): Promise<string> {
         Boolean(item.date) &&
         item.date.getTime() >= todayTime &&
         !isCompleted(item.game)
-    )
-    .sort((a, b) => a.date.getTime() - b.date.getTime());
+    );
+
+  if (gmTeam) {
+    upcoming = upcoming.filter(({ game }) => gameIncludesTeam(game, gmTeam));
+  }
+
+  upcoming.sort((a, b) => a.date.getTime() - b.date.getTime());
 
   if (!upcoming.length) {
-    return "📅 There are no upcoming games on the schedule.";
+    return gmTeam
+      ? `📅 ${gmTeam} does not have another upcoming game on the schedule.`
+      : "📅 There are no upcoming games on the schedule.";
   }
 
   const nextDate = upcoming[0].date;
@@ -173,14 +204,14 @@ export async function buildStatusMessage(): Promise<string> {
     const homeSubmitted = submittedTeams.has(normalizeTeamName(game.home));
 
     return [
-      `${index + 1}. ${getTeamEmoji(game.away)} ${game.away} vs ${getTeamEmoji(game.home)} ${game.home}`,
+      `${gmTeam ? "" : `${index + 1}. `}${getTeamEmoji(game.away)} ${game.away} vs ${getTeamEmoji(game.home)} ${game.home}`,
       `${awaySubmitted ? "✅" : "❌"} ${game.away}: ${awaySubmitted ? "Submitted" : "Not submitted"}`,
       `${homeSubmitted ? "✅" : "❌"} ${game.home}: ${homeSubmitted ? "Submitted" : "Not submitted"}`,
     ].join("\n");
   });
 
   return [
-    `📋 Next Game Status — ${formatDisplayDate(nextDate)}`,
+    `${gmTeam ? `📋 ${gmTeam} Game Status` : "📋 Next Game Status"} — ${formatDisplayDate(nextDate)}`,
     "",
     ...matchupSections.flatMap((section, index) =>
       index === matchupSections.length - 1 ? [section] : [section, ""]
