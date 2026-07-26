@@ -1,33 +1,40 @@
 import "dotenv/config";
 import "./jobDmOnlyPatch";
 
+import { runGmLineupReminders } from "./jobs/gmLineupReminders";
 import { runLineupLock } from "./jobs/lineupLock";
 
 const LINEUP_LOCK_INTERVAL_MS = 5 * 60 * 1000;
 
-let lineupLockRunning = false;
+let lineupJobsRunning = false;
 
-async function checkLineupLock(): Promise<void> {
-  if (lineupLockRunning) {
-    console.log("Lineup-lock check already running.");
+async function checkLineupJobs(): Promise<void> {
+  if (lineupJobsRunning) {
+    console.log("Lineup job check already running.");
     return;
   }
 
-  lineupLockRunning = true;
+  lineupJobsRunning = true;
 
   try {
     await runLineupLock();
   } catch (error) {
     console.error("Lineup-lock check failed:", error);
+  }
+
+  try {
+    await runGmLineupReminders();
+  } catch (error) {
+    console.error("GM lineup-reminder check failed:", error);
   } finally {
-    lineupLockRunning = false;
+    lineupJobsRunning = false;
   }
 }
 
-console.log("Starting Railway lineup-lock scheduler.");
+console.log("Starting Railway lineup-lock and GM-reminder scheduler.");
 
-void checkLineupLock();
+void checkLineupJobs();
 
 setInterval(() => {
-  void checkLineupLock();
+  void checkLineupJobs();
 }, LINEUP_LOCK_INTERVAL_MS);
