@@ -6,6 +6,11 @@ type SubmittedLineup = {
   team?: string;
 };
 
+type LineupLockTime = {
+  hour: number;
+  minute: number;
+};
+
 const GM_TEAM_BY_USER_ID: Record<string, string> = {
   "4JZo9wZv": "Turkeys",
   R3XDLZz3: "Turkeys",
@@ -45,18 +50,42 @@ function getTeamEmoji(team: string): string {
   return emojis[normalizeTeamName(team)] || "🛡️";
 }
 
-function getEasternToday(): Date {
+function getEasternDateTimeParts(): {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+} {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
   }).formatToParts(new Date());
 
   const part = (type: string): number =>
     Number(parts.find((item) => item.type === type)?.value ?? 0);
 
-  return new Date(part("year"), part("month") - 1, part("day"));
+  return {
+    year: part("year"),
+    month: part("month"),
+    day: part("day"),
+    hour: part("hour"),
+    minute: part("minute"),
+  };
+}
+
+function getEasternToday(): Date {
+  const now = getEasternDateTimeParts();
+  return new Date(now.year, now.month - 1, now.day);
+}
+
+function addDays(date: Date, amount: number): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + amount);
 }
 
 function parseScheduleDate(value: string): Date | null {
@@ -121,7 +150,7 @@ function extractSubmittedLineups(value: any): SubmittedLineup[] {
   return [];
 }
 
-async function getSubmittedTeamKeys(date: string): Promise<Set<string>> {
+async function callLineupApi(body: Record<string, unknown>): Promise<any> {
   const url = String(process.env.LINEUP_API_URL || "").trim();
 
   if (!url) {
@@ -131,10 +160,7 @@ async function getSubmittedTeamKeys(date: string): Promise<Set<string>> {
   const response = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      action: "getSubmittedLineups",
-      date,
-    }),
+    body: JSON.stringify(body),
   });
 
   const text = await response.text();
@@ -147,8 +173,19 @@ async function getSubmittedTeamKeys(date: string): Promise<Set<string>> {
   }
 
   if (!response.ok || result?.ok === false) {
-    throw new Error(result?.message || `Lineup API failed with status ${response.status}.`);
+    throw new Error(
+      result?.message || `Lineup API failed with status ${response.status}.`
+    );
   }
+
+  return result;
+}
+
+async function getSubmittedTeamKeys(date: string): Promise<Set<string>> {
+  const result = await callLineupApi({
+    action: "getSubmittedLineups",
+    date,
+  });
 
   return new Set(
     extractSubmittedLineups(result)
@@ -157,21 +194,53 @@ async function getSubmittedTeamKeys(date: string): Promise<Set<string>> {
   );
 }
 
+async function getLineupLockTime(): Promise<LineupLockTime> {
+  const result = await callLineupApi({
+    action: "getLineupLockTime",
+  });
+
+  const hour = Number(result.hour);
+  const minute = Number(result.minute);
+
+  if (
+    !Number.isInteger(hour) ||
+    hour < 0 ||
+    hour > 23 ||
+    !Number.isInteger(minute) ||
+    minute < 0 ||
+    minute > 59
+  ) {
+    throw new Error("The saved lineup lock time is invalid.");
+  }
+
+  return { hour, minute };
+}
+
+async function getFirstStatusDate(): Promise<Date> {
+  const today = getEasternToday();
+  const now = getEasternDateTimeParts();
+  const lockTime = await getLineupLockTime();
+  const currentMinutes = now.hour * 60 + now.minute;
+  const lockMinutes = lockTime.hour * 60 + lockTime.minute;
+
+  return currentMinutes >= lockMinutes ? addDays(today, 1) : today;
+}
+
 export function isStatusCommand(text: string): boolean {
   return /(?:^|\s)[$@]status(?:\s|$)/i.test(String(text || ""));
 }
 
 export async function buildStatusMessage(userId = ""): Promise<string> {
   const schedule = await getSchedule();
-  const today = getEasternToday();
-  const todayTime = today.getTime();
+  const firstStatusDate = await getFirstStatusDate();
+  const firstStatusTime = firstStatusDate.getTime();
   const gmTeam = GM_TEAM_BY_USER_ID[String(userId || "").trim()] || "";
 
   let upcoming: Array<{ game: ScheduleGame; date: Date }> = schedule.flatMap(
     (game) => {
       const date = parseScheduleDate(String(game.date ?? ""));
 
-      if (!date || date.getTime() < todayTime || isCompleted(game)) {
+      if (!date || date.getTime() < firstStatusTime || isCompleted(game)) {
         return [];
       }
 
