@@ -49,7 +49,7 @@ const TEAM_GM_CHANNELS: Record<string, string> = {
   dreamteam: "7521466",
   badbois: "7244816",
   scorpions: "7202447",
-  storm: "7509467"
+  storm: "7509467",
 };
 
 const TEAM_EMOJIS: Record<string, string> = {
@@ -57,7 +57,6 @@ const TEAM_EMOJIS: Record<string, string> = {
   gusnem: "💪",
   thephantoms: "👻",
   illegals: "🕶️",
-  thepandas: "🐼",
   thepandas: "🐼",
   superkings: "👑",
   dreamteam: "💭",
