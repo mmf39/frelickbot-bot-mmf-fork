@@ -138,6 +138,8 @@ function extractSubmittedLineups(value: any): SubmittedLineup[] {
   const candidates = [
     value?.lineups,
     value?.submittedLineups,
+    value?.queuedLineups,
+    value?.queue,
     value?.results,
     value?.data,
     value,
@@ -181,17 +183,39 @@ async function callLineupApi(body: Record<string, unknown>): Promise<any> {
   return result;
 }
 
+function addLineupTeams(target: Set<string>, value: any): void {
+  for (const lineup of extractSubmittedLineups(value)) {
+    const teamKey = normalizeTeamName(String(lineup.team || ""));
+    if (teamKey) target.add(teamKey);
+  }
+}
+
 async function getSubmittedTeamKeys(date: string): Promise<Set<string>> {
-  const result = await callLineupApi({
+  const teamKeys = new Set<string>();
+
+  const submittedResult = await callLineupApi({
     action: "getSubmittedLineups",
     date,
+    includeQueued: true,
   });
 
-  return new Set(
-    extractSubmittedLineups(result)
-      .map((lineup) => normalizeTeamName(String(lineup.team || "")))
-      .filter(Boolean)
-  );
+  addLineupTeams(teamKeys, submittedResult);
+
+  try {
+    const queuedResult = await callLineupApi({
+      action: "getQueuedLineups",
+      date,
+    });
+
+    addLineupTeams(teamKeys, queuedResult);
+  } catch (error) {
+    console.warn(
+      "Queued lineup lookup was unavailable; using the submitted lineup response only:",
+      error
+    );
+  }
+
+  return teamKeys;
 }
 
 async function getLineupLockTime(): Promise<LineupLockTime> {
