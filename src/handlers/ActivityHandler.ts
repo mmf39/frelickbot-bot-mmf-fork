@@ -3,6 +3,10 @@ import {
   buildStatusMessage,
   isStatusCommand,
 } from "../commands/StatusCommand";
+import {
+  buildWhoHasMessage,
+  parseWhoHasCommand,
+} from "../commands/WhoHasCommand";
 import { handleFreeAgencyReply } from "./FreeAgencyHandler";
 
 const COMMISSIONER_USER_ID = "Y3KdBmLn";
@@ -131,10 +135,13 @@ export async function handleActivity(
 
   const session = client.getSession();
   const activityUserId = getActivityUserId(activity);
+  const sessionAuthInfo = String(session?.authInfo ?? "");
+  const botUserId = sessionAuthInfo.split("!")[0]?.trim() || "";
 
   if (
     activityUserId &&
-    activityUserId === session?.userId
+    botUserId &&
+    activityUserId === botUserId
   ) {
     return;
   }
@@ -187,6 +194,14 @@ export async function handleActivity(
     if (isStatusCommand(commandText)) {
       const statusMessage = await buildStatusMessage(activityUserId);
       await client.sendChannelMessage(statusMessage, dmChannelId);
+      return;
+    }
+
+    const whoHasPlayer = parseWhoHasCommand(commandText);
+
+    if (whoHasPlayer !== null) {
+      const whoHasMessage = await buildWhoHasMessage(whoHasPlayer);
+      await client.sendChannelMessage(whoHasMessage, dmChannelId);
       return;
     }
 
