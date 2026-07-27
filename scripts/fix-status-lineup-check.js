@@ -10,33 +10,15 @@ const filePath = path.join(
 
 let source = fs.readFileSync(filePath, "utf8");
 
-const oldCode = `async function getSubmittedTeamKeys(date: string): Promise<Set<string>> {
-  const teamKeys = new Set<string>();
+const functionStart = source.indexOf(
+  "async function getSubmittedTeamKeys(date: string): Promise<Set<string>> {"
+);
+const functionEndMarker = "\nasync function getLineupLockTime";
+const functionEnd = source.indexOf(functionEndMarker, functionStart);
 
-  const submittedResult = await callLineupApi({
-    action: "getSubmittedLineups",
-    date,
-    includeQueued: true,
-  });
-
-  addLineupTeams(teamKeys, submittedResult);
-
-  try {
-    const queuedResult = await callLineupApi({
-      action: "getQueuedLineups",
-      date,
-    });
-
-    addLineupTeams(teamKeys, queuedResult, true);
-  } catch (error) {
-    console.warn(
-      "Queued lineup lookup was unavailable; using the submitted lineup response only:",
-      error
-    );
-  }
-
-  return teamKeys;
-}`;
+if (functionStart < 0 || functionEnd < 0) {
+  throw new Error("Could not find the $status submitted-team verification function.");
+}
 
 const newCode = `async function getSubmittedTeamKeys(date: string): Promise<Set<string>> {
   const teamKeys = new Set<string>();
@@ -92,7 +74,6 @@ const newCode = `async function getSubmittedTeamKeys(date: string): Promise<Set<
         const value = Number(String(row[index] ?? "").replace(/,/g, ""));
         if (Number.isFinite(value)) return value;
       }
-
       return 0;
     }
 
@@ -119,41 +100,46 @@ const newCode = `async function getSubmittedTeamKeys(date: string): Promise<Set<
           error instanceof Error ? error.message : String(error)
         }\`
       );
-
       return null;
     }
   };
 
-  const queuedResponse =
-    (await tryAction("getQueuedLineups")) ||
-    (await tryAction("getSubmittedLineups"));
+  // Count every lineup returned by either lookup. Do not exclude rows marked Used.
+  const lineupResponses = await Promise.all([
+    tryAction("getQueuedLineups"),
+    tryAction("getSubmittedLineups"),
+  ]);
 
-  if (queuedResponse) {
-    const queuedRows = getRows(queuedResponse);
+  for (const response of lineupResponses) {
+    if (!response) continue;
 
-    if (queuedRows.length > 0) {
-      for (const row of rowsToObjects(queuedRows)) {
-        if (!isQueuedLineup(row)) continue;
-        addTeam(getLineupTeam(row));
-      }
+    const rows = getRows(response);
+    const lineups = rowsToObjects(rows);
+
+    for (const lineup of lineups) {
+      addTeam(getLineupTeam(lineup));
     }
   }
 
-  const scoreResponse =
-    (await tryAction("getTeamScores")) ||
-    (await tryAction("getScores"));
+  // A score above 0 also proves that the team has an active lineup.
+  const scoreResponses = await Promise.all([
+    tryAction("getTeamScores"),
+    tryAction("getScores"),
+  ]);
 
-  if (scoreResponse) {
+  for (const scoreResponse of scoreResponses) {
+    if (!scoreResponse) continue;
+
     const scoreRows = getRows(scoreResponse);
 
     if (scoreRows.length > 0) {
       for (const row of scoreRows) {
         if (getScore(row) > 0) addTeam(getTeamName(row));
       }
-    } else if (
-      typeof scoreResponse === "object" &&
-      !Array.isArray(scoreResponse)
-    ) {
+      continue;
+    }
+
+    if (typeof scoreResponse === "object" && !Array.isArray(scoreResponse)) {
       const scoreMap =
         scoreResponse.scores && typeof scoreResponse.scores === "object"
           ? scoreResponse.scores
@@ -173,17 +159,13 @@ const newCode = `async function getSubmittedTeamKeys(date: string): Promise<Set<
   );
 
   return teamKeys;
-}`;
-
-if (source.includes(oldCode)) {
-  source = source.replace(oldCode, newCode);
-  fs.writeFileSync(filePath, source);
-  console.log("Updated $status lineup verification.");
-} else if (
-  source.includes("$status teams treated as submitted") &&
-  source.includes('tryAction("getTeamScores")')
-) {
-  console.log("$status lineup verification is already updated.");
-} else {
-  throw new Error("Could not find the expected $status lineup verification function.");
 }
+`;
+
+source =
+  source.slice(0, functionStart) +
+  newCode +
+  source.slice(functionEnd + 1);
+
+fs.writeFileSync(filePath, source);
+console.log("Updated $status to use reminder-equivalent lineup verification.");
