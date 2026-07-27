@@ -78,6 +78,27 @@ export async function readSheet(
   ) ?? [];
 }
 
+export async function updateSheetValues(
+  spreadsheetId: string,
+  range: string,
+  values: Array<Array<string | number | boolean>>
+): Promise<void> {
+  if (!spreadsheetId) {
+    throw new Error(
+      `Spreadsheet ID is missing for range "${range}"`
+    );
+  }
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range,
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values,
+    },
+  });
+}
+
 export async function appendSheetRows(
   spreadsheetId: string,
   range: string,
