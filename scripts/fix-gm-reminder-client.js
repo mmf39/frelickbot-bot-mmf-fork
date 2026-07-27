@@ -28,127 +28,93 @@ if (source.includes(oldClientCode)) {
   throw new Error("Could not find the expected RealClient initialization.");
 }
 
-const oldLineupCode = `async function getSubmittedTeamKeys(date: string): Promise<Set<string>> {
-  const response = await callLineupApi("getSubmittedLineups", { date });
-  return new Set(
-    extractSubmittedLineups(response)
-      .map((lineup) => normalizeTeamName(String(lineup.team || "")))
-      .filter(Boolean)
-  );
-}`;
-
-const newLineupCode = `async function getSubmittedTeamKeys(date: string): Promise<Set<string>> {
+const replacement = `async function getSubmittedTeamKeys(date: string): Promise<Set<string>> {
   const teamKeys = new Set<string>();
+  const spreadsheetId = String(process.env.GOOGLE_SPREADSHEET_ID || "").trim();
 
-  const addTeam = (value: unknown): void => {
-    const key = normalizeTeamName(String(value || ""));
-    if (key) teamKeys.add(key);
-  };
+  if (!spreadsheetId) {
+    throw new Error("GOOGLE_SPREADSHEET_ID is not configured.");
+  }
 
-  const getRows = (payload: any): any[] => {
-    const candidates = [
-      payload?.queuedLineups,
-      payload?.lineups,
-      payload?.submittedLineups,
-      payload?.scores,
-      payload?.teamScores,
-      payload?.teams,
-      payload?.results,
-      payload?.data,
-      payload,
-    ];
+  const normalizeDate = (value: unknown): string => {
+    const text = String(value ?? "").trim();
+    if (!text) return "";
 
-    for (const candidate of candidates) {
-      if (Array.isArray(candidate)) return candidate;
+    const isoMatch = text.match(/^(\\d{4})-(\\d{1,2})-(\\d{1,2})/);
+    if (isoMatch) {
+      return [
+        isoMatch[1],
+        String(Number(isoMatch[2])).padStart(2, "0"),
+        String(Number(isoMatch[3])).padStart(2, "0"),
+      ].join("-");
     }
 
-    return [];
+    const usMatch = text.match(/^(\\d{1,2})\\/(\\d{1,2})(?:\\/(\\d{2,4}))?/);
+    if (usMatch) {
+      let year = usMatch[3] ? Number(usMatch[3]) : Number(date.slice(0, 4));
+      if (year < 100) year += 2000;
+
+      return [
+        year,
+        String(Number(usMatch[1])).padStart(2, "0"),
+        String(Number(usMatch[2])).padStart(2, "0"),
+      ].join("-");
+    }
+
+    return "";
   };
 
-  const getTeamName = (row: any): unknown => {
-    if (Array.isArray(row)) return row[0];
-    if (!row || typeof row !== "object") return "";
-    return row.team ?? row.teamName ?? row.name ?? row.club;
-  };
+  const queuedRows = await readSheet(
+    spreadsheetId,
+    "Queued Lineups!A:L"
+  );
 
-  const getScore = (row: any): number => {
-    if (Array.isArray(row)) {
-      for (let index = 1; index < row.length; index += 1) {
-        const value = Number(String(row[index] ?? "").replace(/,/g, ""));
-        if (Number.isFinite(value)) return value;
+  if (queuedRows.length > 1) {
+    const headers = queuedRows[0].map((header) =>
+      String(header ?? "").trim().toLowerCase()
+    );
+    const dateIndex = headers.findIndex((header) =>
+      header === "game date" || header === "date"
+    );
+    const teamIndex = headers.findIndex((header) =>
+      header === "submited team" ||
+      header === "submitted team" ||
+      header === "team"
+    );
+
+    if (dateIndex >= 0 && teamIndex >= 0) {
+      for (const row of queuedRows.slice(1)) {
+        if (normalizeDate(row[dateIndex]) !== date) continue;
+
+        const teamKey = normalizeTeamName(String(row[teamIndex] ?? ""));
+        if (teamKey) teamKeys.add(teamKey);
       }
-      return 0;
-    }
-
-    if (!row || typeof row !== "object") return 0;
-
-    const rawScore =
-      row.score ??
-      row.teamScore ??
-      row.totalScore ??
-      row.total ??
-      row.rax ??
-      row.points;
-
-    const score = Number(String(rawScore ?? "0").replace(/,/g, ""));
-    return Number.isFinite(score) ? score : 0;
-  };
-
-  const tryLineupAction = async (action: string): Promise<any | null> => {
-    try {
-      return await callLineupApi(action, { date });
-    } catch (error) {
-      console.warn(
-        \`Lineup API action \${action} is unavailable: \${
-          error instanceof Error ? error.message : String(error)
-        }\`
-      );
-      return null;
-    }
-  };
-
-  // A queued lineup always counts as submitted, even when the score is still 0.
-  const queuedResponse =
-    (await tryLineupAction("getQueuedLineups")) ||
-    (await tryLineupAction("getSubmittedLineups"));
-
-  if (queuedResponse) {
-    for (const lineup of getRows(queuedResponse)) {
-      addTeam(getTeamName(lineup));
     }
   }
 
-  // If no queued lineup exists, a score above 0 also proves that a lineup is active.
-  const scoreResponse =
-    (await tryLineupAction("getTeamScores")) ||
-    (await tryLineupAction("getScores"));
+  const inProgressRows = await readSheet(
+    spreadsheetId,
+    "In Progress!A:Z"
+  );
 
-  if (scoreResponse) {
-    const rows = getRows(scoreResponse);
+  for (const row of inProgressRows) {
+    for (const cell of row) {
+      const match = String(cell ?? "")
+        .trim()
+        .match(/^(.+?)\\s*\\((-?[\\d,]+(?:\\.\\d+)?)\\)$/);
 
-    if (rows.length) {
-      for (const row of rows) {
-        if (getScore(row) > 0) addTeam(getTeamName(row));
-      }
-    } else if (
-      scoreResponse &&
-      typeof scoreResponse === "object" &&
-      !Array.isArray(scoreResponse)
-    ) {
-      const scoreMap =
-        scoreResponse.scores && typeof scoreResponse.scores === "object"
-          ? scoreResponse.scores
-          : scoreResponse;
+      if (!match) continue;
 
-      for (const [team, rawScore] of Object.entries(scoreMap)) {
-        const score = Number(String(rawScore ?? "0").replace(/,/g, ""));
-        if (Number.isFinite(score) && score > 0) addTeam(team);
-      }
+      const score = Number(match[2].replace(/,/g, ""));
+      if (!Number.isFinite(score) || score <= 0) continue;
+
+      const teamKey = normalizeTeamName(match[1]);
+      if (teamKey) teamKeys.add(teamKey);
     }
   }
 
   console.log(
-    \`Teams treated as having a lineup for \${date}: \${
+    \`Reminder teams treated as having a lineup for \${date}: \${
       [...teamKeys].join(", ") || "none"
     }\`
   );
@@ -156,16 +122,16 @@ const newLineupCode = `async function getSubmittedTeamKeys(date: string): Promis
   return teamKeys;
 }`;
 
-if (source.includes(oldLineupCode)) {
-  source = source.replace(oldLineupCode, newLineupCode);
-  console.log("Added queued-lineup and score fallback checks.");
-} else if (
-  source.includes('tryLineupAction("getQueuedLineups")') &&
-  source.includes('tryLineupAction("getTeamScores")')
-) {
-  console.log("Queued-lineup and score checks are already installed.");
-} else {
-  throw new Error("Could not find the expected submitted-lineup function.");
+const functionPattern = /async function getSubmittedTeamKeys\(date: string\): Promise<Set<string>> \{[\s\S]*?\n\}\n\nasync function getTeamRecords/;
+
+if (!functionPattern.test(source)) {
+  throw new Error("Could not find the GM reminder lineup-verification function.");
 }
 
+source = source.replace(
+  functionPattern,
+  `${replacement}\n\nasync function getTeamRecords`
+);
+
 fs.writeFileSync(filePath, source);
+console.log("Updated GM reminders to read Queued Lineups and In Progress directly.");
