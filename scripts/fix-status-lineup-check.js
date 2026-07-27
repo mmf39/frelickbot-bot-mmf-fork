@@ -10,145 +10,95 @@ const filePath = path.join(
 
 let source = fs.readFileSync(filePath, "utf8");
 
-const functionStart = source.indexOf(
-  "async function getSubmittedTeamKeys(date: string): Promise<Set<string>> {"
-);
-const functionEndMarker = "\nasync function getLineupLockTime";
-const functionEnd = source.indexOf(functionEndMarker, functionStart);
+const scheduleImport = 'import { getSchedule } from "../google/ScheduleService";';
+const sheetsImport = 'import { readSheet } from "../google/SheetsClient";';
 
-if (functionStart < 0 || functionEnd < 0) {
-  throw new Error("Could not find the $status submitted-team verification function.");
+if (!source.includes(sheetsImport)) {
+  source = source.replace(scheduleImport, `${scheduleImport}\n${sheetsImport}`);
 }
 
-const newCode = `async function getSubmittedTeamKeys(date: string): Promise<Set<string>> {
+const replacement = `async function getSubmittedTeamKeys(date: string): Promise<Set<string>> {
   const teamKeys = new Set<string>();
+  const spreadsheetId = String(process.env.GOOGLE_SPREADSHEET_ID || "").trim();
 
-  const addTeam = (value: unknown): void => {
-    const teamKey = normalizeTeamName(String(value || ""));
-    if (teamKey) teamKeys.add(teamKey);
-  };
+  if (!spreadsheetId) {
+    throw new Error("GOOGLE_SPREADSHEET_ID is not configured.");
+  }
 
-  const getRows = (payload: any): any[] => {
-    const candidates = [
-      payload?.queuedLineups,
-      payload?.lineups,
-      payload?.submittedLineups,
-      payload?.scores,
-      payload?.teamScores,
-      payload?.teams,
-      payload?.rows,
-      payload?.values,
-      payload?.results,
-      payload?.data,
-      payload,
-    ];
+  const normalizeDate = (value: unknown): string => {
+    const text = String(value ?? "").trim();
+    if (!text) return "";
 
-    for (const candidate of candidates) {
-      if (Array.isArray(candidate)) return candidate;
-      if (Array.isArray(candidate?.rows)) return candidate.rows;
-      if (Array.isArray(candidate?.values)) return candidate.values;
+    const isoMatch = text.match(/^(\\d{4})-(\\d{1,2})-(\\d{1,2})/);
+    if (isoMatch) {
+      return [
+        isoMatch[1],
+        String(Number(isoMatch[2])).padStart(2, "0"),
+        String(Number(isoMatch[3])).padStart(2, "0"),
+      ].join("-");
     }
 
-    return [];
+    const usMatch = text.match(/^(\\d{1,2})\\/(\\d{1,2})(?:\\/(\\d{2,4}))?/);
+    if (usMatch) {
+      let year = usMatch[3] ? Number(usMatch[3]) : Number(date.slice(0, 4));
+      if (year < 100) year += 2000;
+
+      return [
+        year,
+        String(Number(usMatch[1])).padStart(2, "0"),
+        String(Number(usMatch[2])).padStart(2, "0"),
+      ].join("-");
+    }
+
+    return "";
   };
 
-  const getTeamName = (row: any): unknown => {
-    if (Array.isArray(row)) return row[0];
-    if (!row || typeof row !== "object") return "";
+  const queuedRows = await readSheet(
+    spreadsheetId,
+    "Queued Lineups!A:L"
+  );
 
-    return (
-      row.team ??
-      row.teamName ??
-      row.submittedTeam ??
-      row.submitedTeam ??
-      row["Submitted team"] ??
-      row["Submited team"] ??
-      row.name ??
-      row.club
+  if (queuedRows.length > 1) {
+    const headers = queuedRows[0].map((header) =>
+      String(header ?? "").trim().toLowerCase()
     );
-  };
+    const dateIndex = headers.findIndex((header) =>
+      header === "game date" || header === "date"
+    );
+    const teamIndex = headers.findIndex((header) =>
+      header === "submited team" ||
+      header === "submitted team" ||
+      header === "team"
+    );
 
-  const getScore = (row: any): number => {
-    if (Array.isArray(row)) {
-      for (let index = 1; index < row.length; index += 1) {
-        const value = Number(String(row[index] ?? "").replace(/,/g, ""));
-        if (Number.isFinite(value)) return value;
+    if (dateIndex >= 0 && teamIndex >= 0) {
+      for (const row of queuedRows.slice(1)) {
+        if (normalizeDate(row[dateIndex]) !== date) continue;
+
+        const teamKey = normalizeTeamName(String(row[teamIndex] ?? ""));
+        if (teamKey) teamKeys.add(teamKey);
       }
-      return 0;
-    }
-
-    if (!row || typeof row !== "object") return 0;
-
-    const rawScore =
-      row.score ??
-      row.teamScore ??
-      row.totalScore ??
-      row.total ??
-      row.rax ??
-      row.points;
-
-    const score = Number(String(rawScore ?? "0").replace(/,/g, ""));
-    return Number.isFinite(score) ? score : 0;
-  };
-
-  const tryAction = async (action: string): Promise<any | null> => {
-    try {
-      return await callLineupApi({ action, date, includeQueued: true });
-    } catch (error) {
-      console.warn(
-        \`Status lineup API action \${action} is unavailable: \${
-          error instanceof Error ? error.message : String(error)
-        }\`
-      );
-      return null;
-    }
-  };
-
-  // Count every lineup returned by either lookup. Do not exclude rows marked Used.
-  const lineupResponses = await Promise.all([
-    tryAction("getQueuedLineups"),
-    tryAction("getSubmittedLineups"),
-  ]);
-
-  for (const response of lineupResponses) {
-    if (!response) continue;
-
-    const rows = getRows(response);
-    const lineups = rowsToObjects(rows);
-
-    for (const lineup of lineups) {
-      addTeam(getLineupTeam(lineup));
     }
   }
 
-  // A score above 0 also proves that the team has an active lineup.
-  const scoreResponses = await Promise.all([
-    tryAction("getTeamScores"),
-    tryAction("getScores"),
-  ]);
+  const inProgressRows = await readSheet(
+    spreadsheetId,
+    "In Progress!A:Z"
+  );
 
-  for (const scoreResponse of scoreResponses) {
-    if (!scoreResponse) continue;
+  for (const row of inProgressRows) {
+    for (const cell of row) {
+      const match = String(cell ?? "")
+        .trim()
+        .match(/^(.+?)\\s*\\((-?[\\d,]+(?:\\.\\d+)?)\\)$/);
 
-    const scoreRows = getRows(scoreResponse);
+      if (!match) continue;
 
-    if (scoreRows.length > 0) {
-      for (const row of scoreRows) {
-        if (getScore(row) > 0) addTeam(getTeamName(row));
-      }
-      continue;
-    }
+      const score = Number(match[2].replace(/,/g, ""));
+      if (!Number.isFinite(score) || score <= 0) continue;
 
-    if (typeof scoreResponse === "object" && !Array.isArray(scoreResponse)) {
-      const scoreMap =
-        scoreResponse.scores && typeof scoreResponse.scores === "object"
-          ? scoreResponse.scores
-          : scoreResponse;
-
-      for (const [team, rawScore] of Object.entries(scoreMap)) {
-        const score = Number(String(rawScore ?? "0").replace(/,/g, ""));
-        if (Number.isFinite(score) && score > 0) addTeam(team);
-      }
+      const teamKey = normalizeTeamName(match[1]);
+      if (teamKey) teamKeys.add(teamKey);
     }
   }
 
@@ -159,13 +109,18 @@ const newCode = `async function getSubmittedTeamKeys(date: string): Promise<Set<
   );
 
   return teamKeys;
-}
-`;
+}`;
 
-source =
-  source.slice(0, functionStart) +
-  newCode +
-  source.slice(functionEnd + 1);
+const functionPattern = /async function getSubmittedTeamKeys\(date: string\): Promise<Set<string>> \{[\s\S]*?\n\}\n\nasync function getLineupLockTime/;
+
+if (!functionPattern.test(source)) {
+  throw new Error("Could not find the $status lineup verification function.");
+}
+
+source = source.replace(
+  functionPattern,
+  `${replacement}\n\nasync function getLineupLockTime`
+);
 
 fs.writeFileSync(filePath, source);
-console.log("Updated $status to use reminder-equivalent lineup verification.");
+console.log("Updated $status to read Queued Lineups and In Progress directly.");
