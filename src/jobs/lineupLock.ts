@@ -4,12 +4,9 @@ import { RealClient } from "../core/RealClient";
 import { readSheet } from "../google/SheetsClient";
 import { getSchedule } from "../google/ScheduleService";
 
-type SubmittedLineup = {
-  team?: string;
-  captain?: string;
-  lineup?: string[];
-  players?: string[];
-  submittedAt?: string;
+type InProgressLineup = {
+  team: string;
+  players: string[];
 };
 
 type TeamRecord = {
@@ -90,6 +87,12 @@ function getEasternDateParts(date = new Date()): DateParts {
   };
 }
 
+function getSpreadsheetId(): string {
+  const spreadsheetId = String(process.env.GOOGLE_SPREADSHEET_ID || "").trim();
+  if (!spreadsheetId) throw new Error("GOOGLE_SPREADSHEET_ID is missing in Railway.");
+  return spreadsheetId;
+}
+
 function getApiUrl(): string {
   const url = String(process.env.LINEUP_API_URL || "").trim();
   if (!url) throw new Error("LINEUP_API_URL is missing in Railway.");
@@ -126,14 +129,6 @@ async function callLineupApi(
   }
 
   return parsed;
-}
-
-function extractLineups(data: any): SubmittedLineup[] {
-  const candidates = [data?.lineups, data?.submittedLineups, data?.results, data?.data, data];
-  for (const candidate of candidates) {
-    if (Array.isArray(candidate)) return candidate;
-  }
-  return [];
 }
 
 function extractLockRecord(data: any): LineupLockRecord | null {
@@ -212,34 +207,74 @@ function getLockHourMinute(lock: LineupLockRecord): { hour: number; minute: numb
   return parseDisplayTime(lock.display);
 }
 
-function normalizePlayer(value: unknown): string {
-  const player = String(value || "").trim();
-  if (!player) return "";
-  return player.startsWith("@") ? player : `@${player}`;
+function extractTeamName(value: unknown): string {
+  return String(value || "")
+    .trim()
+    .replace(/\s*\([^)]*\)\s*$/, "")
+    .trim();
 }
 
-function getOrderedPlayers(lineup: SubmittedLineup): string[] {
-  const captain = normalizePlayer(lineup.captain);
-  const players = (
-    Array.isArray(lineup.lineup)
-      ? lineup.lineup
-      : Array.isArray(lineup.players)
-        ? lineup.players
-        : []
-  )
-    .map(normalizePlayer)
-    .filter(Boolean);
+function normalizePlayer(value: unknown): string {
+  const raw = String(value || "").replace(/\t/g, " ").trim();
+  if (!raw || raw.toLowerCase() === "player") return "";
 
-  const ordered = [
-    ...(captain ? [`${captain} C`] : []),
-    ...players.filter((player) => !captain || player.toLowerCase() !== captain.toLowerCase()),
-  ];
+  const isCaptain = /\s+C\s*$/i.test(raw);
+  const withoutCaptain = raw.replace(/\s+C\s*$/i, "").trim();
+  const player = withoutCaptain.startsWith("@") ? withoutCaptain : `@${withoutCaptain}`;
 
-  return [...new Map(ordered.map((player) => [player.toLowerCase(), player])).values()].slice(0, 6);
+  return isCaptain ? `${player} C` : player;
+}
+
+function looksLikeTeamHeader(value: unknown): boolean {
+  const text = String(value || "").trim();
+  return Boolean(text) && /\([^)]*\)\s*$/.test(text) && !text.startsWith("@");
+}
+
+function readPlayersBelowHeader(rows: string[][], headerRowIndex: number, columnIndex: number): string[] {
+  const players: string[] = [];
+
+  for (let rowIndex = headerRowIndex + 1; rowIndex < rows.length && players.length < 6; rowIndex++) {
+    const value = String(rows[rowIndex]?.[columnIndex] || "").trim();
+
+    if (looksLikeTeamHeader(value)) break;
+    if (!value || value.toLowerCase() === "player") continue;
+
+    const player = normalizePlayer(value);
+    if (player) players.push(player);
+  }
+
+  return players;
+}
+
+function parseInProgressLineups(rows: string[][]): InProgressLineup[] {
+  const lineups: InProgressLineup[] = [];
+  const teamColumns = [0, 5];
+
+  for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+    for (const columnIndex of teamColumns) {
+      const header = rows[rowIndex]?.[columnIndex];
+      if (!looksLikeTeamHeader(header)) continue;
+
+      const team = extractTeamName(header);
+      if (!team) continue;
+
+      lineups.push({
+        team,
+        players: readPlayersBelowHeader(rows, rowIndex, columnIndex),
+      });
+    }
+  }
+
+  return lineups;
+}
+
+async function getInProgressLineups(): Promise<InProgressLineup[]> {
+  const rows = await readSheet(getSpreadsheetId(), "'In Progress'!A:Z");
+  return parseInProgressLineups(rows);
 }
 
 async function getTeamRecords(): Promise<Map<string, TeamRecord>> {
-  const rows = await readSheet(process.env.GOOGLE_SPREADSHEET_ID!, "Standings!A:F");
+  const rows = await readSheet(getSpreadsheetId(), "Standings!A:F");
   const records = new Map<string, TeamRecord>();
 
   for (const row of rows.slice(1)) {
@@ -264,27 +299,27 @@ function formatRecord(team: string, records: Map<string, TeamRecord>): string {
     : `${record.wins}-${record.losses}`;
 }
 
-function findLineupForTeam(lineups: SubmittedLineup[], teamName: string): SubmittedLineup {
+function findLineupForTeam(lineups: InProgressLineup[], teamName: string): InProgressLineup {
   const target = normalizeTeamName(teamName);
-  return lineups.find((lineup) => normalizeTeamName(String(lineup.team || "")) === target) || {
+  return lineups.find((lineup) => normalizeTeamName(lineup.team) === target) || {
     team: teamName,
+    players: [],
   };
 }
 
 function formatLineup(
-  lineup: SubmittedLineup,
+  lineup: InProgressLineup,
   teamName: string,
   records: Map<string, TeamRecord>
 ): string {
-  const players = getOrderedPlayers(lineup);
   const lines = [
     `${getTeamEmoji(teamName)} ${teamName} (${formatRecord(teamName, records)})`,
   ];
 
-  if (!players.length) {
-    lines.push("No lineup submitted.");
+  if (!lineup.players.length) {
+    lines.push("No lineup found in In Progress.");
   } else {
-    lines.push(...players);
+    lines.push(...lineup.players);
   }
 
   return lines.join("\n");
@@ -292,14 +327,14 @@ function formatLineup(
 
 function formatAllMatchups(
   games: Array<{ away: string; home: string }>,
-  lineups: SubmittedLineup[],
+  lineups: InProgressLineup[],
   records: Map<string, TeamRecord>
 ): string {
   return games
     .map((game) =>
       [
         formatLineup(findLineupForTeam(lineups, game.away), game.away, records),
-        "-----",
+        "----------",
         formatLineup(findLineupForTeam(lineups, game.home), game.home, records),
       ].join("\n")
     )
@@ -343,8 +378,7 @@ export async function runLineupLock(): Promise<void> {
     return;
   }
 
-  const lineupResponse = await callLineupApi("getSubmittedLineups", { date: now.isoDate });
-  const lineups = getLatestLineups(extractLineups(lineupResponse));
+  const lineups = await getInProgressLineups();
   const records = await getTeamRecords();
 
   const message = [
@@ -356,8 +390,6 @@ export async function runLineupLock(): Promise<void> {
   const client = new RealClient();
   client.loadSession();
 
-  // Deliver first. If delivery fails, do not mark it sent so the next five-minute
-  // scheduler run retries automatically.
   await client.postToGroup(message, Number(process.env.REAL_GROUP_ID || 0));
 
   await callLineupApi("markLineupDmSent", {
