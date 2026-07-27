@@ -81,6 +81,18 @@ function normalizeTeamName(team: string): string {
     .replace(/[^a-z0-9]/g, "");
 }
 
+function normalizeReminderType(value: unknown): ReminderType | "" {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "");
+
+  if (normalized === "9pm" || normalized === "9:00pm") return "9pm";
+  if (normalized === "2hour" || normalized === "2hours") return "2hour";
+  if (normalized === "1hour" || normalized === "1hours") return "1hour";
+  return "";
+}
+
 function getTeamEmoji(team: string): string {
   return TEAM_EMOJIS[normalizeTeamName(team)] || "🛡️";
 }
@@ -275,9 +287,14 @@ async function getSentReminderKeys(): Promise<Set<string>> {
   const rows = await readSheet(spreadsheetId, `'${REMINDER_LOG_SHEET}'!A:E`);
 
   return new Set(
-    rows.slice(1).map((row) =>
-      `${String(row[0] || "").trim()}|${normalizeTeamName(String(row[1] || ""))}|${String(row[2] || "").trim()}`
-    )
+    rows.slice(1)
+      .map((row) => {
+        const date = String(row[0] || "").trim();
+        const team = normalizeTeamName(String(row[1] || ""));
+        const type = normalizeReminderType(row[2]);
+        return date && team && type ? `${date}|${team}|${type}` : "";
+      })
+      .filter(Boolean)
   );
 }
 
@@ -307,19 +324,9 @@ async function sendNinePmMessages(
   records: Map<string, string>,
   sentKeys: Set<string>
 ): Promise<void> {
-  const isTemporaryTestTime =
-  now.isoDate === "2026-07-25" &&
-  now.hour === 23 &&
-  now.minute >= 24 &&
-  now.minute < 30;
-
-const isNormalNinePmTime =
-  now.isoDate !== "2026-07-25" &&
-  now.hour === 21;
-
-if (!isTemporaryTestTime && !isNormalNinePmTime) {
-  return;
-}
+  if (now.hour !== 21) {
+    return;
+  }
 
   const tomorrow = addEasternDays(now.isoDate, 1);
   const games = (await getScheduleForDate(tomorrow.monthDay)) as LeagueGame[];
@@ -371,7 +378,7 @@ function getReminderType(now: EasternNow, lock: LockRecord): ReminderType | null
   return null;
 }
 
-async function sendUnsubmittedReminderMessages(
+async function sendDeadlineMessages(
   client: RealClient,
   now: EasternNow,
   records: Map<string, string>,
@@ -385,45 +392,50 @@ async function sendUnsubmittedReminderMessages(
   );
   if (!lock) return;
 
-  const type = getReminderType(now, lock);
-  if (!type) return;
+  const reminderType = getReminderType(now, lock);
+  if (!reminderType) return;
 
-  const submittedTeams = await getSubmittedTeamKeys(now.isoDate);
-  const hours = type === "2hour" ? 2 : 1;
+  const submittedTeamKeys = await getSubmittedTeamKeys(now.isoDate);
+  const dueTime = formatLockTime(lock);
 
   for (const team of getTeamsPlaying(games)) {
     const teamKey = normalizeTeamName(team);
-    if (submittedTeams.has(teamKey)) continue;
+    if (submittedTeamKeys.has(teamKey)) continue;
 
-    const key = reminderKey(now.isoDate, team, type);
+    const key = reminderKey(now.isoDate, team, reminderType);
     if (sentKeys.has(key)) continue;
 
     const channelId = getGmChannelId(team);
     const opponent = findOpponent(games, team);
     if (!channelId || !opponent) continue;
 
+    const leadText = reminderType === "2hour" ? "about two hours" : "about one hour";
     const message =
-      `⏰ Reminder: Lineups are due in ${hours} ${hours === 1 ? "hour" : "hours"}! ` +
-      `📝\n\n${getTeamEmoji(team)} ${team} (${getRecord(team, records)}) vs ` +
-      `${getTeamEmoji(opponent)} ${opponent} (${getRecord(opponent, records)})`;
+      `⏰ Your lineup for ${getTeamEmoji(team)} ${team} (${getRecord(team, records)}) vs ` +
+      `${getTeamEmoji(opponent)} ${opponent} (${getRecord(opponent, records)}) ` +
+      `is due in ${leadText}, at ${dueTime}.\n\n` +
+      `You have not submitted a lineup yet.`;
 
     await client.sendChannelMessage(message, channelId);
-    await markReminderSent(now.isoDate, team, type, channelId);
+    await markReminderSent(now.isoDate, team, reminderType, channelId);
     sentKeys.add(key);
-    console.log(`Sent the ${hours}-hour unsubmitted-lineup reminder to ${team}.`);
+    console.log(`Sent the ${reminderType} lineup reminder to ${team}.`);
   }
 }
 
 export async function runGmLineupReminders(): Promise<void> {
   const now = getEasternNow();
-  const client = new RealClient();
-  client.loadSession();
-
-  const [records, sentKeys] = await Promise.all([
-    getTeamRecords(),
-    getSentReminderKeys(),
-  ]);
+  const client = await RealClient.create();
+  const records = await getTeamRecords();
+  const sentKeys = await getSentReminderKeys();
 
   await sendNinePmMessages(client, now, records, sentKeys);
-  await sendUnsubmittedReminderMessages(client, now, records, sentKeys);
+  await sendDeadlineMessages(client, now, records, sentKeys);
+}
+
+if (require.main === module) {
+  runGmLineupReminders().catch((error) => {
+    console.error("GM lineup reminders failed:", error);
+    process.exitCode = 1;
+  });
 }
