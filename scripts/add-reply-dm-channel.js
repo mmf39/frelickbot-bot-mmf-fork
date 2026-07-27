@@ -25,20 +25,20 @@ if (!realClient.includes("async getOrCreateDmChannel(")) {
   realClient = realClient.replace(marker, method + marker);
 }
 
-if (!commandHandler.includes("let submitterDmChannelId: string | null = null;")) {
-  const marker = "      try {\n        const result = await callTransactionApi({";
-  const replacement = `      try {\n        let submitterDmChannelId: string | null = null;\n\n        try {\n          submitterDmChannelId = await client.getOrCreateDmChannel(\n            submittingUserId\n          );\n        } catch (dmChannelError) {\n          console.error(\n            \"Could not resolve the transaction submitter's DM channel:\",\n            dmChannelError\n          );\n        }\n\n        const result = await callTransactionApi({`;
+if (!commandHandler.includes("let commandDmChannelId: string | null = null;")) {
+  const marker = '  console.log("Arguments:", argumentsText);\n\n  switch (command) {';
+  const replacement = `  console.log("Arguments:", argumentsText);\n\n  const commandUserId = getSubmittingUserId(activity);\n  let commandDmChannelId: string | null = null;\n\n  if (commandUserId) {\n    try {\n      commandDmChannelId = await client.getOrCreateDmChannel(\n        commandUserId\n      );\n\n      activity.resolvedDmChannelId = commandDmChannelId;\n      activity.resolvedCommandUserId = commandUserId;\n\n      console.log(\n        \`Command \${command} from \${commandUserId} uses DM channel \${commandDmChannelId}.\`\n      );\n    } catch (dmChannelError) {\n      console.error(\n        \`Could not resolve a DM channel for command \${command} from \${commandUserId}:\`,\n        dmChannelError\n      );\n    }\n  } else {\n    console.warn(\n      \`Could not identify the user who sent command \${command}; DM channel was not resolved.\`\n    );\n  }\n\n  switch (command) {`;
 
   if (!commandHandler.includes(marker)) {
-    throw new Error("Could not find the transaction submission insertion point.");
+    throw new Error("Could not find the shared command-handler insertion point.");
   }
 
   commandHandler = commandHandler.replace(marker, replacement);
 }
 
-if (!commandHandler.includes("submitterDmChannelId,")) {
+if (!commandHandler.includes("submitterDmChannelId: commandDmChannelId,")) {
   const marker = "  submittedByUserId: submittingUserId,\n  team: submittingTeam,";
-  const replacement = "  submittedByUserId: submittingUserId,\n  submitterDmChannelId,\n  team: submittingTeam,";
+  const replacement = "  submittedByUserId: submittingUserId,\n  submitterDmChannelId: commandDmChannelId,\n  team: submittingTeam,";
 
   if (!commandHandler.includes(marker)) {
     throw new Error("Could not add the submitter DM channel to the transaction payload.");
@@ -49,7 +49,7 @@ if (!commandHandler.includes("submitterDmChannelId,")) {
 
 if (!commandHandler.includes("Submitter DM Channel:")) {
   const marker = "          `Submitted By User ID: ${submittingUserId}`,\n          \"\",";
-  const replacement = "          `Submitted By User ID: ${submittingUserId}`,\n          `Submitter DM Channel: ${submitterDmChannelId ?? \"Unavailable\"}`,\n          \"\",";
+  const replacement = "          `Submitted By User ID: ${submittingUserId}`,\n          `Submitter DM Channel: ${commandDmChannelId ?? \"Unavailable\"}`,\n          \"\",";
 
   if (!commandHandler.includes(marker)) {
     throw new Error("Could not add the submitter DM channel to the notification.");
@@ -61,4 +61,4 @@ if (!commandHandler.includes("Submitter DM Channel:")) {
 fs.writeFileSync(realClientPath, realClient);
 fs.writeFileSync(commandHandlerPath, commandHandler);
 
-console.log("Added automatic Real DM channel resolution for transaction replies.");
+console.log("Added automatic Real DM channel resolution for every recognized command.");
