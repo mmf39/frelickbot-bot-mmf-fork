@@ -6,7 +6,7 @@
   "private": true,
   "scripts": {
     "dev": "tsx src/index.ts",
-    "build": "node scripts/fix-gm-reminder-client.js && node scripts/fix-status-lineup-check.js && node scripts/add-reply-dm-channel.js && tsc",
+    "build": "node scripts/fix-gm-reminder-client.js && node scripts/fix-status-lineup-check.js && node scripts/add-reply-dm-channel.js && node scripts/restore-lineup-latest-helper.js && tsc",
     "start": "node -r ./dist/realClientCreatePatch.js -r ./dist/puppeteerGroupPostPatch.js -r ./dist/lineupScheduler.js -r ./dist/dmCommandListener.js dist/index.js",
     "lineup-lock": "node -r ./dist/jobDmOnlyPatch.js dist/jobs/lineupLock.js",
     "lineup-announcement": "node -r ./dist/jobDmOnlyPatch.js dist/jobs/lineupAnnouncement.js",
