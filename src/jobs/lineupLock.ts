@@ -188,9 +188,6 @@ function parseDisplayTime(display: unknown): { hour: number; minute: number } | 
     if (meridiem === "PM" && hour !== 12) hour += 12;
   } else {
     if (hour < 0 || hour > 23) return null;
-
-    // Manual sheet entries such as "4:45" are intended as afternoon
-    // lineup deadlines. Explicit 24-hour values such as "16:45" still work.
     if (hour >= 1 && hour <= 11) hour += 12;
   }
 
@@ -221,34 +218,6 @@ function normalizePlayer(value: unknown): string {
   return player.startsWith("@") ? player : `@${player}`;
 }
 
-function getLatestLineups(lineups: SubmittedLineup[]): SubmittedLineup[] {
-  const latestByTeam = new Map<string, SubmittedLineup>();
-
-  for (const lineup of lineups) {
-    const key = normalizeTeamName(String(lineup.team || ""));
-    if (!key) continue;
-
-    const existing = latestByTeam.get(key);
-    if (!existing) {
-      latestByTeam.set(key, lineup);
-      continue;
-    }
-
-    const currentTime = Date.parse(String(lineup.submittedAt || "")) || 0;
-    const existingTime = Date.parse(String(existing.submittedAt || "")) || 0;
-    if (currentTime >= existingTime) latestByTeam.set(key, lineup);
-  }
-
-  return [...latestByTeam.values()];
-}
-
-function findLineupForTeam(lineups: SubmittedLineup[], teamName: string): SubmittedLineup {
-  const target = normalizeTeamName(teamName);
-  return lineups.find((lineup) => normalizeTeamName(String(lineup.team || "")) === target) || {
-    team: teamName,
-  };
-}
-
 function getOrderedPlayers(lineup: SubmittedLineup): string[] {
   const captain = normalizePlayer(lineup.captain);
   const players = (
@@ -262,7 +231,7 @@ function getOrderedPlayers(lineup: SubmittedLineup): string[] {
     .filter(Boolean);
 
   const ordered = [
-    ...(captain ? [captain] : []),
+    ...(captain ? [`${captain} C`] : []),
     ...players.filter((player) => !captain || player.toLowerCase() !== captain.toLowerCase()),
   ];
 
@@ -293,6 +262,13 @@ function formatRecord(team: string, records: Map<string, TeamRecord>): string {
   return record.ties && record.ties !== "0"
     ? `${record.wins}-${record.losses}-${record.ties}`
     : `${record.wins}-${record.losses}`;
+}
+
+function findLineupForTeam(lineups: SubmittedLineup[], teamName: string): SubmittedLineup {
+  const target = normalizeTeamName(teamName);
+  return lineups.find((lineup) => normalizeTeamName(String(lineup.team || "")) === target) || {
+    team: teamName,
+  };
 }
 
 function formatLineup(
@@ -377,14 +353,17 @@ export async function runLineupLock(): Promise<void> {
     formatAllMatchups(games, lineups, records),
   ].join("\n");
 
+  const client = new RealClient();
+  client.loadSession();
+
+  // Deliver first. If delivery fails, do not mark it sent so the next five-minute
+  // scheduler run retries automatically.
+  await client.postToGroup(message, Number(process.env.REAL_GROUP_ID || 0));
+
   await callLineupApi("markLineupDmSent", {
     date: now.isoDate,
     sentAt: new Date().toISOString(),
   });
-
-  const client = new RealClient();
-  client.loadSession();
-  await client.postToGroup(message, Number(process.env.REAL_GROUP_ID || 0));
 
   console.log(
     `Sent ${games.length} active matchup${games.length === 1 ? "" : "s"} one time for ${now.isoDate}.`
