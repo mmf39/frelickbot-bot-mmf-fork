@@ -1184,7 +1184,9 @@ Use a time like:
       if (!parsedLineup) {
         await client.replyToComment(
           activity.commentId,
-`Use one of these formats:
+`
+** IF YOU ARE USING DM, DO NOT @ YOUR ROSTER, JUST TYPE WITHOUT THE @ 
+Use one of these formats:
 
 Today's lineup:
 @rsklbot $lineup
