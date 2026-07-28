@@ -1062,7 +1062,8 @@ $cap [team/all] - Show salary-cap information
 $live [team] - Show live game scores
 $lineup [today/date] - Submit or queue a six-player lineup\n$lineup lock time [time] - Set the daily Eastern lineup deadline
 $transaction [sign/cut/trade/namechange] [details] - Submit a transaction request
-$[team] - Show a team's information`
+$[team] - Show a team's information
+$whohas [player]-information regarding player (in DM do not @ player)`
   );
 
   return;
