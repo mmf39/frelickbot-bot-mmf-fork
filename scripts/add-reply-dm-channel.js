@@ -3,9 +3,11 @@ const path = require("path");
 
 const realClientPath = path.join(process.cwd(), "src", "core", "RealClient.ts");
 const commandHandlerPath = path.join(process.cwd(), "src", "CommandHandler.ts");
+const activityHandlerPath = path.join(process.cwd(), "src", "handlers", "ActivityHandler.ts");
 
 let realClient = fs.readFileSync(realClientPath, "utf8");
 let commandHandler = fs.readFileSync(commandHandlerPath, "utf8");
+let activityHandler = fs.readFileSync(activityHandlerPath, "utf8");
 
 if (!realClient.includes("private readonly dmChannelByUserId")) {
   realClient = realClient.replace(
@@ -58,7 +60,18 @@ if (!commandHandler.includes("Submitter DM Channel:")) {
   commandHandler = commandHandler.replace(marker, replacement);
 }
 
+const oldDmResolution = `  const directChannelId = getActivityChannelId(activity);\n  const dmChannelId =\n    directChannelId || getDmChannelIdForUser(activityUserId);\n\n  if (!dmChannelId) {\n    console.error(\n      \`No DM channel is configured for command caller \${activityUserId || \"unknown\"}. Add it to REAL_DM_CHANNELS_JSON.\`\n    );\n    return;\n  }`;
+
+const newDmResolution = `  const directChannelId = getActivityChannelId(activity);\n  let dmChannelId =\n    directChannelId || getDmChannelIdForUser(activityUserId);\n\n  if (!dmChannelId && activityUserId) {\n    try {\n      dmChannelId = await client.getOrCreateDmChannel(activityUserId);\n      console.log(\n        \`Automatically resolved command DM channel \${dmChannelId} for \${activityUserId}.\`\n      );\n    } catch (error) {\n      console.error(\n        \`Could not automatically resolve a DM channel for command caller \${activityUserId}:\`,\n        error\n      );\n    }\n  }\n\n  if (!dmChannelId) {\n    console.error(\n      \`No DM channel could be resolved for command caller \${activityUserId || \"unknown\"}.\`\n    );\n    return;\n  }`;
+
+if (activityHandler.includes(oldDmResolution)) {
+  activityHandler = activityHandler.replace(oldDmResolution, newDmResolution);
+} else if (!activityHandler.includes("Automatically resolved command DM channel")) {
+  throw new Error("Could not find the ActivityHandler DM resolution block.");
+}
+
 fs.writeFileSync(realClientPath, realClient);
 fs.writeFileSync(commandHandlerPath, commandHandler);
+fs.writeFileSync(activityHandlerPath, activityHandler);
 
-console.log("Added automatic Real DM channel resolution for every recognized command.");
+console.log("Added automatic Real DM channel resolution for comment and DM commands.");
