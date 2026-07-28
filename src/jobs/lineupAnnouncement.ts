@@ -44,10 +44,10 @@ const TEAM_GMS: Record<string, string> = {
   gusnem: "@bostonsportsfan11",
   thephantoms: "@maliknabers.1",
   illegals: "@cjstroud777",
-  pandas: "@dbook",
+  thepandas: "@dbook",
   superkings: "@sirelmodoggy",
-  dreamteam: "@germie",
-  badbois: "@imgoingd1",
+  dreamteam: "@gmoneytb",
+  badbois: "@jloveprod",
   scorpions: "@yup_",
   storm: "@creeperpotato",
 };
