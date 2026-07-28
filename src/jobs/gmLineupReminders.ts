@@ -47,7 +47,7 @@ const TEAM_GM_CHANNELS: Record<string, string> = {
   thepandas: "7519078",
   superkings: "7402013",
   dreamteam: "7521466",
-  badbois: "7244816",
+  badbois: "7535050",
   scorpions: "7202447",
   storm: "7509467",
 };
