@@ -47,7 +47,7 @@ const TEAM_GMS: Record<string, string> = {
   thepandas: "@dbook",
   superkings: "@sirelmodoggy",
   dreamteam: "@gmoneytb",
-  badbois: "@jloveprod",
+  badbois: "@3xcurry",
   scorpions: "@yup_",
   storm: "@creeperpotato",
 };
