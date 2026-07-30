@@ -29,7 +29,7 @@ const GM_TEAM_BY_USER_ID: Record<string, string> = {
   "7JkKrbKJ": "Super Kings",
   dvd60P4n: "Dream Team",
   qnBmomW3: "Dream Team",
-  xnr4NGkv: "Bad Bois",
+  QvDoOXZJ: "Bad Bois",
   eJ9dx9bn: "Scorpions",
   mvg4OPG3: "Storm",
 };
